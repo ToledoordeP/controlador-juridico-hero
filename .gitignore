@@ -1,0 +1,6 @@
+# Nada de dados locais ou lixo do SO no repositório público
+fluxo_dados.json
+*.tmp
+Thumbs.db
+desktop.ini
+.DS_Store
