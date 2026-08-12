@@ -18,7 +18,9 @@
 window.FLUXO_CONFIG = {
   SUPABASE_URL:      "https://yigjhzfniollbmqewpko.supabase.co",
   SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlpZ2poemZuaW9sbGJtcWV3cGtvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY1MjAwODYsImV4cCI6MjEwMjA5NjA4Nn0.NC2VDYq-K-25aWGcyXpsGvgNboWOApzuqHV0D6f9ylo",
-  LOGIN_EMAIL:       "juridico@heroseguros.com.br"
+  LOGIN_EMAIL:       "juridico@heroseguros.com.br",
+  // "brevo" = envia pela nuvem (Brevo); "outlook" = quem envia é o fluxo_notifier.py local; "off" = sem e-mail pelo site
+  EMAIL_SENDER:      "brevo"
 };
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -612,6 +614,7 @@ async function cloudLogout(){
 function fmtBR(iso){ if(!iso) return ""; const p=String(iso).slice(0,10).split("-"); return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:iso; }
 async function notify(a, changeText, isNew){
   if(!CLOUD || !sb || !sb.functions) return;
+  if((CFG.EMAIL_SENDER||"brevo")!=="brevo") return; // "outlook"/"off": o site não dispara; quem envia é o notifier local
   try{
     // envolvidos = responsáveis + revisor + criador, menos quem fez a ação
     const ids=[...new Set([...respArr(a), a.autorizador, a.criadoPor].filter(Boolean))].filter(id=>id!==me);
@@ -869,7 +872,7 @@ function mineStripHTML(){
 /* ── KANBAN ── */
 function kanbanHTML(){
   const acts=visibleActs();
-  const cols=STATUS.filter(s=> s.id!=="arquivada" || acts.some(a=>a.status==="arquivada"));
+  const cols=STATUS.filter(s=> s.id!=="arquivada"); // coluna "Arquivada" sempre oculta
   return `<div class="board">${cols.map(s=>{
     const items=acts.filter(a=>a.status===s.id).sort((a,b)=>priRank(b)-priRank(a));
     return `<div class="col" data-col="${s.id}">
