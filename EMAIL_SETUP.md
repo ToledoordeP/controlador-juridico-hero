@@ -1,54 +1,51 @@
-# Notificações por e-mail — configuração (Resend + Supabase Edge Function)
+# Notificações por e-mail — configuração
 
-Arquitetura **segura**: o site só dispara o pedido; a chave da API fica só no servidor.
+Arquitetura **segura**: o site só dispara o pedido; a chave da API fica só no servidor (Supabase Edge Function).
 
 ```
-Fluxo Jurídico (site)  →  Edge Function "notify" (Supabase, guarda a chave)  →  Resend  →  caixas da equipe
+Fluxo Jurídico (site)  →  Edge Function "notify" (Supabase, guarda a chave)  →  provedor  →  caixas da equipe
 ```
 
-O código do site **já chama** a função ao criar/atualizar tarefas. Falta só o setup abaixo.
+O site **já chama** a função ao criar/atualizar tarefas. A função suporta **Brevo** (sem DNS) ou **Resend** (com domínio).
 
 ---
 
-## 1 · Resend (conta + domínio + chave)
+## Opção A — Brevo (SEM DNS, envia para a equipe já) ✅ escolhida
 
-1. Crie conta em <https://resend.com> (grátis: ~3.000 e-mails/mês).
-2. **Domains → Add Domain →** `heroseguros.com.br`. O Resend mostra alguns **registros DNS** (SPF/DKIM). Peça para a **TI adicionar** esses registros no DNS do domínio e aguarde ficar **Verified**.
-   - Sem domínio verificado, o Resend só entrega para o e-mail da sua própria conta (modo teste).
-3. **API Keys → Create API Key →** copie o valor (`re_...`). Guarde — vamos colocar como segredo no Supabase (não no site).
+> ⚠️ Sem autenticação de domínio, os primeiros e-mails podem cair no **Spam/Lixo Eletrônico**. Peça para a equipe marcar como "não é spam" / remetente confiável na primeira vez.
 
-## 2 · Publicar a Edge Function no Supabase
+### 1 · Conta + remetente + chave
+1. Crie conta em <https://www.brevo.com> (grátis, 300 e-mails/dia).
+2. **Senders, Domains & Dedicated IPs → Senders → Add a sender**: cadastre um **e-mail remetente** que você controla (ex.: um e-mail seu). O Brevo envia um link de confirmação — **clique nele** para verificar. (Não precisa de DNS.)
+3. **SMTP & API → API Keys → Generate a new API key** → copie (`xkeysib-...`). Essa chave **você** guarda e cola no Supabase (não no site).
 
-**Pelo painel (sem instalar nada):**
-1. Supabase → menu **Edge Functions → Deploy a new function → Via editor**.
-2. Nome: `notify`.
-3. Cole o conteúdo de [`supabase/functions/notify/index.ts`](supabase/functions/notify/index.ts).
-4. **Deploy**.
+### 2 · Publicar a Edge Function no Supabase
+- Supabase → **Edge Functions → Deploy a new function → via editor** → nome `notify` → cole `supabase/functions/notify/index.ts` → **Deploy**.
 
-*(Alternativa por CLI: `supabase functions deploy notify`.)*
-
-## 3 · Segredos da função (a chave mora aqui, nunca no site)
-
-Supabase → **Edge Functions → (função notify) → Secrets** (ou Project Settings → Edge Functions → Manage secrets). Adicione:
-
+### 3 · Segredos (Supabase → Edge Functions → Secrets)
 | Nome | Valor |
 |---|---|
-| `RESEND_API_KEY` | a chave `re_...` do Resend |
-| `FROM_EMAIL` | `Fluxo Jurídico <fluxo@heroseguros.com.br>` (tem que ser do domínio verificado) |
-| `ALLOWED_EMAILS` | os 4 e-mails da equipe, separados por vírgula (lista de segurança) |
+| `EMAIL_PROVIDER` | `brevo` |
+| `BREVO_API_KEY` | a chave `xkeysib-...` |
+| `FROM_EMAIL` | `Fluxo Jurídico <o-remetente-verificado@exemplo.com>` |
+| `ALLOWED_EMAILS` | os e-mails da equipe, separados por vírgula |
 
-## 4 · Preencher os e-mails da equipe no site
+### 4 · E-mails da equipe no site
+No `index.html`, preencha `email` de cada membro em `TEAM`, e `git push`.
 
-No `index.html`, na constante `TEAM`, preencha o campo `email` de cada pessoa. Depois `git push` (o GitHub Pages atualiza sozinho).
+### 5 · Testar
+Crie uma tarefa → chega **[Nova tarefa]**. Mude o prazo → chega **[Tarefa atualizada]** com o que mudou. (Confira o Spam na primeira vez.)
 
-## 5 · Testar
+---
 
-Crie uma tarefa atribuindo a alguém com e-mail preenchido → deve chegar um **[Nova tarefa]**. Altere o prazo → deve chegar um **[Tarefa atualizada]** dizendo o que mudou.
+## Opção B — Resend (com domínio verificado, melhor entrega) — para depois
+Quando puder verificar o domínio no DNS, troque os segredos para:
+`EMAIL_PROVIDER=resend`, `RESEND_API_KEY=re_...`, `FROM_EMAIL=Fluxo Jurídico <fluxo@notificacoes.heroseguros.com.br>`. Nada mais muda.
 
 ---
 
 ### Notas
-- **verify_jwt:** por padrão a função exige login. O site já envia a sessão do usuário, então funciona. Se aparecer erro 401, desative `verify_jwt` para a função `notify` (a `ALLOWED_EMAILS` continua protegendo contra abuso).
-- **Quem recebe:** responsáveis + revisor + criador, exceto quem fez a ação (não recebe e-mail da própria ação).
-- **Falha de e-mail nunca trava o app:** se a função estiver fora do ar, o quadro continua funcionando normalmente.
-- **Modo local / servidor na rede:** as notificações só disparam na versão em nuvem (Supabase). Na versão LAN não há envio de e-mail.
+- **verify_jwt:** a função exige login por padrão; o site já envia a sessão. Se der 401, desative `verify_jwt` para `notify` (a `ALLOWED_EMAILS` continua protegendo).
+- **Quem recebe:** responsáveis + revisor + criador, exceto quem fez a ação.
+- **Falha de e-mail nunca trava o app.**
+- **Modo local / rede:** e-mails só na versão em nuvem (Supabase).
