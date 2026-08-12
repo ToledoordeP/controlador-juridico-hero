@@ -1153,6 +1153,7 @@ function renderDetail(a){
   const canDelegate = isResp(a,me) && (a.status==="todo"||a.status==="doing");
   const canApprove  = (a.autorizador===me) && (a.status==="approval");
   const canEdit = a.criadoPor===me || isResp(a,me) || me==="gabrielle";
+  const canClose = (a.criadoPor===me || isResp(a,me) || me==="gabrielle") && a.status!=="done" && a.status!=="arquivada";
 
   let actions="";
   if(canComplete) actions+=`<button class="btn btn-ok" id="dComplete">${ic("check")} ${a.autorizador?"Concluir e enviar p/ aprovação":"Marcar como concluída"}</button>`;
@@ -1161,6 +1162,7 @@ function renderDetail(a){
     actions+=`<button class="btn btn-ok" id="dApprove">${ic("check")} Aprovar</button>`;
     actions+=`<button class="btn btn-err" id="dReturn">${ic("arrow")} Devolver com motivo</button>`;
   }
+  if(canClose) actions+=`<button class="btn btn-warn" id="dEncerrar">${ic("flag")} Encerrar atividade</button>`;
   if(a.status==="done"&&canEdit) actions+=`<button class="btn btn-ghost btn-sm" id="dArchive">Arquivar</button>`;
   if(!actions) actions=`<span class="note">Você pode comentar. Ações de fluxo ficam disponíveis para ${respArr(a).length>1?"os responsáveis":"o responsável"} (${esc(respNames(a))})${a.autorizador?` e o autorizador (${esc(byId(a.autorizador).nome)})`:""}.</span>`;
 
@@ -1236,6 +1238,7 @@ function renderDetail(a){
   $("#dApprove")&&($("#dApprove").onclick=()=>{approveAct(a);render();renderDetail(a);toast("Atividade aprovada e concluída ✓");});
   $("#dReturn")&&($("#dReturn").onclick=()=>openReturn(a));
   $("#dArchive")&&($("#dArchive").onclick=()=>{setStatus(a,"arquivada",`${byId(me).nome} arquivou a atividade`);closeModal();});
+  $("#dEncerrar")&&($("#dEncerrar").onclick=()=>openClose(a));
   $("#dEdit")&&($("#dEdit").onclick=()=>openForm(a));
 }
 function ic2x(){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';}
@@ -1275,6 +1278,33 @@ function openReturn(a){
     const m=$("#retMsg").value.trim(); if(!m){toast("Descreva o motivo","warn");return;}
     returnAct(a,m); render(); renderDetail(a); toast("Atividade devolvida","warn");
   };
+}
+/* Encerrar (concluir direto ou cancelar/arquivar) */
+function openClose(a){
+  const body=`
+    <div class="modal-hd"><div class="h"><h2>Encerrar atividade</h2><div class="sub">Finalize esta atividade agora — direto, sem passar pelo fluxo de aprovação.</div></div><button class="x" id="mClose">${ic2x()}</button></div>
+    <div class="modal-bd">
+      <div class="fld"><label>Observação <span class="opt">(opcional)</span></label><textarea class="ta" id="clNote" placeholder="Ex.: resolvido diretamente com a área · não é mais necessária…"></textarea></div>
+      <div class="fld"><label>Como deseja encerrar?</label>
+        <div style="display:flex;flex-direction:column;gap:9px">
+          <button class="btn btn-ok" id="clDone" style="justify-content:flex-start">${ic("check")} Concluir — marcar como <b style="margin-left:4px">Concluída</b></button>
+          <button class="btn btn-err" id="clCancel" style="justify-content:flex-start">${ic("inbox")} Encerrar / cancelar — <b style="margin-left:4px">Arquivar</b></button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-ft"><button class="btn btn-ghost" id="mCancel">Voltar</button></div>`;
+  openModal(body);
+  $("#mClose").onclick=()=>renderDetail(a); $("#mCancel").onclick=()=>renderDetail(a);
+  $("#clDone").onclick=()=>{ closeAct(a,"done",$("#clNote").value.trim()); render(); renderDetail(a); toast("Atividade concluída ✓"); };
+  $("#clCancel").onclick=()=>{ closeAct(a,"arquivada",$("#clNote").value.trim()); render(); renderDetail(a); toast("Atividade encerrada e arquivada","warn"); };
+}
+function closeAct(a, mode, note){
+  a.status=mode; a.updatedAt=now();
+  a.flow.forEach(s=>s.status="done");
+  const label = mode==="done" ? "concluiu (encerrou) a atividade" : "encerrou e arquivou a atividade";
+  a.history.push({ator:me, acao: label + (note?`: "${note}"`:""), at:now()});
+  if(note) a.comments.push({autor:me, texto:`Encerramento: ${note}`, at:now(), sys:true});
+  persist(); notifyLast(a,false);
 }
 
 /* ══════════════════════ FORMULÁRIO (novo / editar) ══════════════════════ */
