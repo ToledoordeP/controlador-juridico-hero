@@ -258,6 +258,17 @@ input,textarea,select{font-family:inherit}
 .rm-link.done{background:linear-gradient(90deg,var(--ok),var(--ok))}
 .rm-link.done::after{content:"";position:absolute;right:-1px;top:-3px;border-left:6px solid var(--ok);border-top:4px solid transparent;border-bottom:4px solid transparent}
 
+/* ─── ROADMAP · LINHA DO TEMPO (mapa alimentado a cada atualização) ─── */
+.rm-timelbl{font-size:9.5px;text-transform:uppercase;letter-spacing:1.1px;color:var(--tx3);font-weight:700;margin:16px 0 2px}
+.journey{display:flex;align-items:flex-start;overflow-x:auto;padding:10px 2px 6px}
+.jn{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:7px;width:112px;padding-top:6px}
+.jn-dot{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;position:relative;box-shadow:inset 0 1px 0 rgba(255,255,255,.25),0 2px 6px rgba(0,0,0,.4)}
+.jn-dot svg{width:16px;height:16px}
+.jn.cur .jn-dot{box-shadow:0 0 0 3px var(--bg),0 0 0 5px var(--jc,var(--acc)),0 0 16px var(--jc,var(--acc))}
+.jn .jlbl{font-size:11px;font-weight:600;color:var(--tx);text-align:center;line-height:1.2}
+.jn .jsub{font-size:9.5px;color:var(--tx3);text-align:center;line-height:1.25}
+.jc{flex:0 0 auto;width:70px;height:60px;margin-top:12px}
+
 /* ─── FEED ───────────────────────────────────────────────── */
 .feed{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:2px}
 .feed-item{display:flex;gap:12px;padding:12px 4px;border-bottom:1px solid var(--bd);cursor:pointer}
@@ -883,8 +894,48 @@ function roadmapHTML(){
         ${a.prazo?`<span class="due ${dueState(a)}">${ic("clock")}${fmtDate(a.prazo)}</span>`:""}
       </div>
       <div class="rm-flow">${flowHTML(a.flow)}</div>
+      <div class="rm-timelbl">Linha do tempo · alimentada a cada atualização</div>
+      ${journeyHTML(a)}
     </div>`;
   }).join("")}</div>`;
+}
+/* Mapa/linha do tempo: cada evento do histórico vira um nó, ligado por seta pontilhada curva */
+function journeyMeta(action){
+  const a=(action||"").toLowerCase();
+  if(a.includes("criou"))       return {label:"Tarefa criada",        ic:"flag",  cor:"#4F6EF7"};
+  if(a.includes("delegou")||a.includes("reatribuiu")) return {label:"Delegada", ic:"arrow", cor:"#22D3EE"};
+  if(a.includes("enviado para aprovação")) return {label:"Enviada p/ aprovação", ic:"clock", cor:"#F59E0B"};
+  if(a.includes("aprovou"))     return {label:"Aprovada",             ic:"check", cor:"#10B981"};
+  if(a.includes("devolveu"))    return {label:"Devolvida",            ic:"arrow", cor:"#EF4444"};
+  if(a.includes("arquivou"))    return {label:"Arquivada",            ic:"inbox", cor:"#475569"};
+  if(a.includes("concluiu"))    return {label:"Concluída",            ic:"check", cor:"#10B981"};
+  if(a.includes("moveu"))       return {label:"Status alterado",      ic:"arrow", cor:"#7B5EF8"};
+  if(a.includes("editou"))      return {label:"Editada",              ic:"user",  cor:"#7B5EF8"};
+  return {label:"Atualização", ic:"chat", cor:"#94A3B8"};
+}
+function connSVG(i, color){
+  const up = i%2===1; // alterna a curva p/ dar o traçado serpenteante do mapa
+  const d = up ? "M4,30 C24,7 48,7 66,30" : "M4,30 C24,53 48,53 66,30";
+  return `<svg class="jc" viewBox="0 0 70 60" fill="none" aria-hidden="true">
+    <path d="${d}" stroke="${color}" stroke-width="1.6" stroke-dasharray="1.5 5.5" stroke-linecap="round" opacity=".9"/>
+    <path d="M59,25 L66.5,30 L59,35" stroke="${color}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </svg>`;
+}
+function journeyHTML(a){
+  const evs=a.history||[];
+  if(!evs.length) return `<div class="journey"><div class="jn"><div class="jn-dot" style="background:var(--s4)">${ic("flag")}</div><div class="jlbl">Sem atualizações</div></div></div>`;
+  let html=`<div class="journey">`;
+  evs.forEach((h,i)=>{
+    const m=journeyMeta(h.acao);
+    if(i>0) html+=connSVG(i, m.cor);
+    const cur=i===evs.length-1;
+    html+=`<div class="jn ${cur?'cur':''}" style="--jc:${m.cor}" title="${esc(h.acao)}">
+      <div class="jn-dot" style="background:linear-gradient(135deg,${m.cor},${shade(m.cor,-22)})">${ic(m.ic)}</div>
+      <div class="jlbl">${esc(m.label)}</div>
+      <div class="jsub">${esc(byId(h.ator).nome)} · ${esc(relTime(h.at))}</div>
+    </div>`;
+  });
+  return html+`</div>`;
 }
 function flowHTML(flow){
   let html="";
