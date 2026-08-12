@@ -247,6 +247,8 @@ input,textarea,select{font-family:inherit}
 }
 .rm-node.pending{opacity:.38;filter:grayscale(.5)}
 .rm-node.current{box-shadow:0 0 0 3px var(--bg),0 0 0 5px var(--kc),0 0 18px var(--kc)}
+.rm-node.multi{width:auto;min-width:44px;height:44px;border-radius:24px;padding:0 9px;background:rgba(255,255,255,.05)}
+.rm-node.multi .av-stack .av{border:2px solid var(--s1)}
 .rm-node .chk{position:absolute;bottom:-3px;right:-3px;width:17px;height:17px;border-radius:50%;background:var(--ok);border:2px solid var(--bg);display:flex;align-items:center;justify-content:center}
 .rm-node .chk svg{width:9px;height:9px;color:#fff}
 .rm-stop .who{font-size:11px;font-weight:600;color:var(--tx);text-align:center;line-height:1.2}
@@ -469,17 +471,27 @@ function normalizeAct(a){
   a.desc = a.desc || "";
   a.prioridade = PRI.some(p=>p.id===a.prioridade) ? a.prioridade : "media";
   a.status = STATUS.some(s=>s.id===a.status) ? a.status : "todo";
-  a.criadoPor = a.criadoPor || a.responsavel || "pedro";
-  a.responsavel = a.responsavel || a.criadoPor;
+  a.criadoPor = a.criadoPor || a.responsavel || (Array.isArray(a.responsaveis)&&a.responsaveis[0]) || "pedro";
+  // responsáveis: o ARRAY é a fonte da verdade; "responsavel" fica como espelho do 1º (compatibilidade)
+  if(!Array.isArray(a.responsaveis) || !a.responsaveis.length)
+    a.responsaveis = a.responsavel ? [a.responsavel] : [a.criadoPor];
+  a.responsaveis = a.responsaveis.filter(Boolean);
+  if(!a.responsaveis.length) a.responsaveis = [a.criadoPor];
+  a.responsavel = a.responsaveis[0];
   a.autorizador = a.autorizador || "";
   a.prazo = a.prazo || "";
   a.comments = Array.isArray(a.comments) ? a.comments : [];
   a.history = Array.isArray(a.history) ? a.history : [];
-  a.flow = Array.isArray(a.flow) && a.flow.length ? a.flow : [{pessoa:a.responsavel,papel:"Responsável",status:"current"}];
+  a.flow = Array.isArray(a.flow) && a.flow.length ? a.flow : [{pessoas:a.responsaveis.slice(),papel:"Responsável",status:"current"}];
   a.createdAt = a.createdAt || now();
   a.updatedAt = a.updatedAt || a.createdAt;
   return a;
 }
+/* Helpers de responsáveis (suportam 1 ou vários) */
+function respArr(a){ return (Array.isArray(a.responsaveis)&&a.responsaveis.length) ? a.responsaveis : (a.responsavel?[a.responsavel]:[]); }
+function isResp(a,id){ return respArr(a).includes(id); }
+function respNames(a){ return respArr(a).map(id=>byId(id).nome).join(", "); }
+function stopPeople(s){ return (Array.isArray(s.pessoas)&&s.pessoas.length) ? s.pessoas : (s.pessoa?[s.pessoa]:[]); }
 function mergeInto(incoming){
   const map=new Map(store.activities.map(a=>[a.id,a]));
   let changed=false;
@@ -729,7 +741,7 @@ function renderTabs(){
 function pendingForMe(){
   return store.activities.filter(a=>
     (a.status==="approval" && a.autorizador===me) ||
-    ((a.status==="todo"||a.status==="doing") && a.responsavel===me)
+    ((a.status==="todo"||a.status==="doing") && isResp(a,me))
   ).length;
 }
 
@@ -743,11 +755,11 @@ function visibleActs(){
     }
     if(filter.pri && a.prioridade!==filter.pri) return false;
     if(filter.pessoa){
-      const inv=[a.criadoPor,a.responsavel,a.autorizador].includes(filter.pessoa);
+      const inv=[a.criadoPor,a.autorizador,...respArr(a)].includes(filter.pessoa);
       if(!inv) return false;
     }
     if(filter.mine){
-      const inv=[a.responsavel,a.autorizador].includes(me);
+      const inv=isResp(a,me) || a.autorizador===me;
       if(!inv) return false;
     }
     return true;
@@ -758,7 +770,7 @@ function visibleActs(){
 function render(){
   renderTabs();
   const m=$("#main");
-  m.innerHTML = toolbarHTML() + mineStripHTML() + `<div id="viewRoot"></div>`;
+  m.innerHTML = toolbarHTML() + (view==="quadro"?mineStripHTML():"") + `<div id="viewRoot"></div>`;
   bindToolbar();
   const root=$("#viewRoot");
   if(view==="quadro") root.innerHTML = kanbanHTML();
@@ -798,10 +810,10 @@ function refreshView(){
 /* ── "Para você" ── */
 function mineStripHTML(){
   const acts=store.activities;
-  const resp = acts.filter(a=>a.responsavel===me && (a.status==="todo"||a.status==="doing"));
+  const resp = acts.filter(a=>isResp(a,me) && (a.status==="todo"||a.status==="doing"));
   const aprov = acts.filter(a=>a.status==="approval" && a.autorizador===me);
-  const late = acts.filter(a=>dueState(a)==="late" && [a.responsavel,a.autorizador].includes(me));
-  const feitas = acts.filter(a=>a.status==="done" && [a.criadoPor,a.responsavel,a.autorizador].includes(me));
+  const late = acts.filter(a=>dueState(a)==="late" && (isResp(a,me)||a.autorizador===me));
+  const feitas = acts.filter(a=>a.status==="done" && (a.criadoPor===me||isResp(a,me)||a.autorizador===me));
   const cards=[
     {lbl:"Comigo agora", val:resp.length, hint:"aguardando sua ação", cor:"#4F6EF7", f:()=>{filter.mine=true;view="quadro";}},
     {lbl:"Para aprovar", val:aprov.length, hint:"esperando seu aval", cor:"#F59E0B", f:()=>{filter={q:"",pri:"",pessoa:me,mine:false};view="quadro";}},
@@ -837,7 +849,7 @@ function priRank(a){ return PRI.findIndex(p=>p.id===a.prioridade); }
 function cardHTML(a){
   const pri=PRI.find(p=>p.id===a.prioridade)||PRI[0];
   const ds=dueState(a);
-  const mine=[a.responsavel,a.autorizador].includes(me) && (a.status!=="done"&&a.status!=="arquivada");
+  const mine=(isResp(a,me)||a.autorizador===me) && (a.status!=="done"&&a.status!=="arquivada");
   return `<div class="card ${mine?'mine-hl':''}" draggable="true" data-id="${a.id}">
     <div class="card-top">
       <span class="chip pri-${a.prioridade}"><span class="chip-dot" style="background:${pri.cor}"></span>${pri.nome}</span>
@@ -849,8 +861,8 @@ function cardHTML(a){
     </div>
     <div class="card-foot">
       <div class="av-stack">
-        ${avatar(a.responsavel,"sm")}
-        ${a.autorizador&&a.autorizador!==a.responsavel?avatar(a.autorizador,"sm"):""}
+        ${respArr(a).map(id=>avatar(id,"sm")).join("")}
+        ${a.autorizador&&!isResp(a,a.autorizador)?avatar(a.autorizador,"sm"):""}
       </div>
       ${a.comments.length?`<span class="card-cmt">${ic("chat")}${a.comments.length}</span>`:""}
     </div>
@@ -877,22 +889,36 @@ function roadmapHTML(){
 function flowHTML(flow){
   let html="";
   flow.forEach((s,i)=>{
-    const p=byId(s.pessoa);
-    const ini=p.nome.slice(0,1).toUpperCase()+(p.nome.split(" ")[1]?.slice(0,1).toUpperCase()||"");
+    const people=stopPeople(s);
     const cls = s.status==="done"?"":s.status==="current"?"current":"pending";
     const roleCls = s.status==="current"?"cur":"";
     if(i>0){
       const linkDone = flow[i-1].status==="done";
       html+=`<div class="rm-link ${linkDone?'done':''}"></div>`;
     }
-    html+=`<div class="rm-stop" style="--kc:${p.cor}">
-      <div class="rm-node ${cls}" style="background:linear-gradient(135deg,${p.cor},${shade(p.cor,-22)})" title="${esc(p.nome)}">
-        ${esc(ini)}
-        ${s.status==="done"?`<span class="chk">${ic("check")}</span>`:""}
-      </div>
-      <div class="who">${esc(p.nome)}</div>
-      <div class="role ${roleCls}">${esc(s.papel)}</div>
-    </div>`;
+    if(people.length<=1){
+      const p=byId(people[0]);
+      const nm=String(p.nome||"?"), pt=nm.split(" ");
+      const ini=(nm.slice(0,1)+(pt[1]?pt[1].slice(0,1):"")).toUpperCase();
+      html+=`<div class="rm-stop" style="--kc:${p.cor}">
+        <div class="rm-node ${cls}" style="background:linear-gradient(135deg,${p.cor},${shade(p.cor,-22)})" title="${esc(nm)}">
+          ${esc(ini)}
+          ${s.status==="done"?`<span class="chk">${ic("check")}</span>`:""}
+        </div>
+        <div class="who">${esc(nm)}</div>
+        <div class="role ${roleCls}">${esc(s.papel)}</div>
+      </div>`;
+    }else{
+      const kc=byId(people[0]).cor;
+      html+=`<div class="rm-stop" style="--kc:${kc}">
+        <div class="rm-node multi ${cls}" title="${esc(people.map(id=>byId(id).nome).join(", "))}">
+          <div class="av-stack">${people.map(id=>avatar(id,"sm")).join("")}</div>
+          ${s.status==="done"?`<span class="chk">${ic("check")}</span>`:""}
+        </div>
+        <div class="who">${esc(people.map(id=>byId(id).nome).join(", "))}</div>
+        <div class="role ${roleCls}">${esc(s.papel)}</div>
+      </div>`;
+    }
   });
   return html;
 }
@@ -1001,10 +1027,10 @@ function syncFlowToStatus(a){
 function delegateAct(a, to){
   const ri=currentRespIndex(a);
   if(ri>=0){ a.flow[ri].papel="Delegou"; a.flow[ri].status="done"; }
-  a.flow.splice(ri+1,0,{pessoa:to,papel:"Responsável",status:"current"});
-  const prev=a.responsavel;
-  a.responsavel=to; if(a.status==="todo") a.status="doing"; a.updatedAt=now();
-  a.history.push({ator:me,acao:`delegou de ${byId(prev).nome} para ${byId(to).nome}`,at:now()});
+  a.flow.splice(ri+1,0,{pessoas:[to],papel:"Responsável",status:"current"});
+  const prev=respNames(a);
+  a.responsaveis=[to]; a.responsavel=to; if(a.status==="todo") a.status="doing"; a.updatedAt=now();
+  a.history.push({ator:me,acao:`delegou de ${prev} para ${byId(to).nome}`,at:now()});
   a.comments.push({autor:me,texto:`Deleguei esta atividade para ${byId(to).nome}.`,at:now(),sys:true});
   persist();
 }
@@ -1030,7 +1056,7 @@ function returnAct(a, motivo){
   const authI=a.flow.findIndex(s=>s.papel==="Autoriza");
   if(authI>=0) a.flow[authI].status="pending";
   if(ri>=0) a.flow[ri].status="current";
-  a.history.push({ator:me,acao:`devolveu para ${byId(a.responsavel).nome}: "${motivo}"`,at:now()});
+  a.history.push({ator:me,acao:`devolveu para ${respNames(a)}: "${motivo}"`,at:now()});
   a.comments.push({autor:me,texto:`Devolvida para ajustes: ${motivo}`,at:now(),sys:true});
   persist();
 }
@@ -1045,10 +1071,10 @@ function openDetail(id){
 function renderDetail(a){
   const st=stById(a.status);
   const pri=PRI.find(p=>p.id===a.prioridade)||PRI[0];
-  const canComplete = (a.responsavel===me) && (a.status==="todo"||a.status==="doing");
-  const canDelegate = (a.responsavel===me) && (a.status==="todo"||a.status==="doing");
+  const canComplete = isResp(a,me) && (a.status==="todo"||a.status==="doing");
+  const canDelegate = isResp(a,me) && (a.status==="todo"||a.status==="doing");
   const canApprove  = (a.autorizador===me) && (a.status==="approval");
-  const canEdit = [a.criadoPor,a.responsavel].includes(me) || me==="gabrielle";
+  const canEdit = a.criadoPor===me || isResp(a,me) || me==="gabrielle";
 
   let actions="";
   if(canComplete) actions+=`<button class="btn btn-ok" id="dComplete">${ic("check")} ${a.autorizador?"Concluir e enviar p/ aprovação":"Marcar como concluída"}</button>`;
@@ -1058,7 +1084,7 @@ function renderDetail(a){
     actions+=`<button class="btn btn-err" id="dReturn">${ic("arrow")} Devolver com motivo</button>`;
   }
   if(a.status==="done"&&canEdit) actions+=`<button class="btn btn-ghost btn-sm" id="dArchive">Arquivar</button>`;
-  if(!actions) actions=`<span class="note">Você pode comentar. Ações de fluxo ficam disponíveis para o responsável (${esc(byId(a.responsavel).nome)})${a.autorizador?` e o autorizador (${esc(byId(a.autorizador).nome)})`:""}.</span>`;
+  if(!actions) actions=`<span class="note">Você pode comentar. Ações de fluxo ficam disponíveis para ${respArr(a).length>1?"os responsáveis":"o responsável"} (${esc(respNames(a))})${a.autorizador?` e o autorizador (${esc(byId(a.autorizador).nome)})`:""}.</span>`;
 
   const body=`
     <div class="modal-hd">
@@ -1078,7 +1104,7 @@ function renderDetail(a){
       ${a.desc?`<div><div class="d-lbl">Descrição</div><div class="d-desc">${esc(a.desc)}</div></div>`:""}
 
       <div class="d-grid d-sec">
-        <div class="d-meta"><span class="k">Responsável atual</span><span class="v">${avatar(a.responsavel,"sm")} ${esc(byId(a.responsavel).nome)}</span></div>
+        <div class="d-meta"><span class="k">${respArr(a).length>1?"Responsáveis":"Responsável atual"}</span><span class="v" style="flex-wrap:wrap">${respArr(a).map(id=>`${avatar(id,"sm")} ${esc(byId(id).nome)}`).join('<span style="color:var(--tx4);margin:0 2px">·</span>')}</span></div>
         <div class="d-meta"><span class="k">Autorização</span><span class="v">${a.autorizador?avatar(a.autorizador,"sm")+" "+esc(byId(a.autorizador).nome):"<span style='color:var(--tx3)'>Não exige</span>"}</span></div>
       </div>
 
@@ -1138,9 +1164,9 @@ function ic2x(){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColo
 
 /* Delegar */
 function openDelegate(a){
-  const opts=TEAM.filter(p=>p.id!==a.responsavel);
+  const opts=TEAM.filter(p=>!isResp(a,p.id));
   const body=`
-    <div class="modal-hd"><div class="h"><h2>Delegar atividade</h2><div class="sub">De ${esc(byId(a.responsavel).nome)} para outro colega — a responsabilidade passa a ser dele.</div></div><button class="x" id="mClose">${ic2x()}</button></div>
+    <div class="modal-hd"><div class="h"><h2>Delegar atividade</h2><div class="sub">De ${esc(respNames(a))} para outro colega — a responsabilidade passa a ser dele.</div></div><button class="x" id="mClose">${ic2x()}</button></div>
     <div class="modal-bd">
       <div class="fld"><label>Novo responsável</label>
         <div class="people-pick" id="delPick">
@@ -1162,7 +1188,7 @@ function openDelegate(a){
 /* Devolver */
 function openReturn(a){
   const body=`
-    <div class="modal-hd"><div class="h"><h2>Devolver para ajustes</h2><div class="sub">Volta para ${esc(byId(a.responsavel).nome)} com o motivo registrado.</div></div><button class="x" id="mClose">${ic2x()}</button></div>
+    <div class="modal-hd"><div class="h"><h2>Devolver para ajustes</h2><div class="sub">Volta para ${esc(respNames(a))} com o motivo registrado.</div></div><button class="x" id="mClose">${ic2x()}</button></div>
     <div class="modal-bd"><div class="fld"><label>Motivo da devolução</label><textarea class="ta" id="retMsg" placeholder="O que precisa ser ajustado?"></textarea></div></div>
     <div class="modal-ft"><button class="btn btn-ghost" id="mCancel">Cancelar</button><button class="btn btn-err" id="retDo">Devolver</button></div>`;
   openModal(body);
@@ -1175,7 +1201,7 @@ function openReturn(a){
 
 /* ══════════════════════ FORMULÁRIO (novo / editar) ══════════════════════ */
 function openForm(edit){
-  const a = edit || {titulo:"",desc:"",prioridade:"media",responsavel:me,autorizador:"",prazo:""};
+  const a = edit || {titulo:"",desc:"",prioridade:"media",responsaveis:[me],responsavel:me,autorizador:"",prazo:""};
   const isEdit=!!edit;
   const body=`
     <div class="modal-hd"><div class="h"><h2>${isEdit?"Editar atividade":"Nova atividade"}</h2><div class="sub">${isEdit?"Ajuste os campos e salve.":"Descreva a tarefa, defina o responsável e, se precisar, quem autoriza."}</div></div><button class="x" id="mClose">${ic2x()}</button></div>
@@ -1185,8 +1211,8 @@ function openForm(edit){
       <div class="fld"><label>Prioridade</label>
         <div class="seg" id="fPri">${PRI.map(p=>`<button class="seg-o ${a.prioridade===p.id?'on':''}" data-id="${p.id}" style="${a.prioridade===p.id?`background:${p.cor};box-shadow:0 2px 10px ${p.cor}55`:''}">${p.nome}</button>`).join("")}</div>
       </div>
-      <div class="fld"><label>Responsável ${isEdit?"":"(quem vai executar)"}</label>
-        <div class="people-pick" id="fResp">${TEAM.map(p=>`<button class="pp ${a.responsavel===p.id?'on':''}" data-id="${p.id}">${avatar(p.id,"sm")}<span class="nm">${esc(p.nome)}</span><span class="rl">${esc(p.papel)}</span></button>`).join("")}</div>
+      <div class="fld"><label>Responsáveis <span class="opt">(pode marcar mais de um)</span></label>
+        <div class="people-pick" id="fResp">${TEAM.map(p=>`<button class="pp ${respArr(a).includes(p.id)?'on':''}" data-id="${p.id}">${avatar(p.id,"sm")}<span class="nm">${esc(p.nome)}</span><span class="rl">${esc(p.papel)}</span></button>`).join("")}</div>
       </div>
       <div class="grid2">
         <div class="fld"><label>Autorização <span class="opt">(opcional)</span></label>
@@ -1197,7 +1223,7 @@ function openForm(edit){
     </div>
     <div class="modal-ft"><button class="btn btn-ghost" id="mCancel">Cancelar</button><button class="btn btn-primary" id="fSave">${isEdit?"Salvar alterações":"Criar atividade"}</button></div>`;
   openModal(body);
-  let sel={pri:a.prioridade, resp:a.responsavel};
+  let sel={pri:a.prioridade}; const selResps=new Set(respArr(a));
   $("#mClose").onclick=()=> isEdit?renderDetail(edit):closeModal();
   $("#mCancel").onclick=()=> isEdit?renderDetail(edit):closeModal();
   $$("#fPri .seg-o").forEach(b=>b.onclick=()=>{
@@ -1205,30 +1231,38 @@ function openForm(edit){
     $$("#fPri .seg-o").forEach(x=>{x.classList.remove("on");x.style.cssText="";});
     const c=(PRI.find(p=>p.id===sel.pri)||{}).cor; b.classList.add("on"); b.style.cssText=`background:${c};box-shadow:0 2px 10px ${c}55;color:#fff;border-color:transparent`;
   });
-  $$("#fResp .pp").forEach(b=>b.onclick=()=>{sel.resp=b.dataset.id;$$("#fResp .pp").forEach(x=>x.classList.remove("on"));b.classList.add("on");});
+  $$("#fResp .pp").forEach(b=>b.onclick=()=>{
+    const id=b.dataset.id;
+    if(selResps.has(id)) selResps.delete(id); else selResps.add(id);
+    b.classList.toggle("on", selResps.has(id));
+  });
   $("#fSave").onclick=()=>{
     const tit=$("#fTit").value.trim(); if(!tit){toast("Dê um título à atividade","warn");return;}
     const auth=$("#fAuth").value, prazo=$("#fPrazo").value, desc=$("#fDesc").value.trim();
+    const resps=[...selResps]; if(!resps.length){toast("Escolha ao menos um responsável","warn");return;}
     if(isEdit){
       edit.titulo=tit; edit.desc=desc; edit.prioridade=sel.pri; edit.prazo=prazo; edit.updatedAt=now();
       if(edit.autorizador!==auth){edit.autorizador=auth; syncFlowToStatus(edit);}
-      if(edit.responsavel!==sel.resp){ // troca de responsável na edição = delegação
-        const prev=edit.responsavel; edit.responsavel=sel.resp;
-        const ri=currentRespIndex(edit); if(ri>=0) edit.flow[ri].pessoa=sel.resp;
-        edit.history.push({ator:me,acao:`reatribuiu de ${byId(prev).nome} para ${byId(sel.resp).nome}`,at:now()});
+      const prevKey=respArr(edit).slice().sort().join(","), newKey=resps.slice().sort().join(",");
+      if(prevKey!==newKey){ // mudou o conjunto de responsáveis
+        const prevNames=respNames(edit);
+        edit.responsaveis=resps; edit.responsavel=resps[0];
+        const ri=currentRespIndex(edit); if(ri>=0){ edit.flow[ri].pessoas=resps.slice(); delete edit.flow[ri].pessoa; }
+        edit.history.push({ator:me,acao:`reatribuiu de ${prevNames} para ${resps.map(id=>byId(id).nome).join(", ")}`,at:now()});
       }
       edit.history.push({ator:me,acao:`editou a atividade`,at:now()});
       persist(); render(); renderDetail(edit); toast("Alterações salvas");
     }else{
-      const flow=[{pessoa:me,papel:"Designou",status:"done"}];
-      if(sel.resp!==me) flow.push({pessoa:sel.resp,papel:"Responsável",status:"current"});
-      else flow[0]={pessoa:me,papel:"Responsável",status:"current"};
+      const soloMe = resps.length===1 && resps[0]===me;
+      const flow=[];
+      if(soloMe){ flow.push({pessoas:[me],papel:"Responsável",status:"current"}); }
+      else{ flow.push({pessoa:me,papel:"Designou",status:"done"}); flow.push({pessoas:resps.slice(),papel:"Responsável",status:"current"}); }
       if(auth) flow.push({pessoa:auth,papel:"Autoriza",status:"pending"});
       const na={
         id:uid(), titulo:tit, desc, prioridade:sel.pri, status:"todo",
-        criadoPor:me, responsavel:sel.resp, autorizador:auth, prazo,
+        criadoPor:me, responsaveis:resps, responsavel:resps[0], autorizador:auth, prazo,
         createdAt:now(), updatedAt:now(), flow,
-        comments:[], history:[{ator:me,acao:`criou a atividade${sel.resp!==me?` e designou para ${byId(sel.resp).nome}`:""}`,at:now()}],
+        comments:[], history:[{ator:me,acao:`criou a atividade${!soloMe?` e designou para ${resps.map(id=>byId(id).nome).join(", ")}`:""}`,at:now()}],
       };
       store.activities.unshift(na); persist(); render(); closeModal();
       toast("Atividade criada ✓"); setTimeout(()=>openDetail(na.id),120);
@@ -1312,11 +1346,12 @@ function doImport(raw, replace){
 let ov=null;
 function openModal(inner, extraCls=""){
   closeModal();
-  ov=document.createElement("div"); ov.className="ov";
-  ov.innerHTML=`<div class="modal ${extraCls}">${inner}</div>`;
-  document.body.appendChild(ov);
-  requestAnimationFrame(()=>ov.classList.add("on"));
-  ov.addEventListener("mousedown",e=>{if(e.target===ov)closeModal();});
+  const el=document.createElement("div"); el.className="ov";
+  el.innerHTML=`<div class="modal ${extraCls}">${inner}</div>`;
+  document.body.appendChild(el);
+  ov=el;
+  requestAnimationFrame(()=>el.classList.add("on"));
+  el.addEventListener("mousedown",e=>{if(e.target===el)closeModal();});
 }
 function closeModal(){ if(ov){const o=ov;ov=null;o.classList.remove("on");setTimeout(()=>o.remove(),200);} detailId=null; }
 document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
