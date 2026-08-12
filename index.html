@@ -424,10 +424,11 @@ input,textarea,select{font-family:inherit}
 "use strict";
 /* ══════════════════════ CONFIG ══════════════════════ */
 const TEAM = [
-  {id:"pedro",     nome:"Pedro",     papel:"Analista Jurídico Jr", cor:"#4F6EF7"},
-  {id:"victor",    nome:"Victor",    papel:"Analista Sênior",      cor:"#22D3EE"},
-  {id:"ana",       nome:"Anna",      papel:"Analista Sênior",      cor:"#7B5EF8"},
-  {id:"gabrielle", nome:"Gabrielle", papel:"Gerente Jurídica",     cor:"#F5A623"},
+  // Preencha os e-mails abaixo para as notificações chegarem a cada pessoa.
+  {id:"pedro",     nome:"Pedro",     papel:"Analista Jurídico Jr", cor:"#4F6EF7", email:"pedro.toledo@heroseguros.com.br"},
+  {id:"victor",    nome:"Victor",    papel:"Analista Sênior",      cor:"#22D3EE", email:""},
+  {id:"ana",       nome:"Anna",      papel:"Analista Sênior",      cor:"#7B5EF8", email:""},
+  {id:"gabrielle", nome:"Gabrielle", papel:"Gerente Jurídica",     cor:"#F5A623", email:""},
 ];
 const byId = id => TEAM.find(p=>p.id===id) || {id,nome:(id==null||id===""?"?":String(id)),papel:"",cor:"#64748b"};
 
@@ -606,6 +607,32 @@ async function cloudLogout(){
   try{ await sb.auth.signOut(); }catch(e){}
   location.reload();
 }
+
+/* ── NOTIFICAÇÃO POR E-MAIL (dispara a Edge Function; NENHUMA chave no frontend) ── */
+function fmtBR(iso){ if(!iso) return ""; const p=String(iso).slice(0,10).split("-"); return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:iso; }
+async function notify(a, changeText, isNew){
+  if(!CLOUD || !sb || !sb.functions) return;
+  try{
+    // envolvidos = responsáveis + revisor + criador, menos quem fez a ação
+    const ids=[...new Set([...respArr(a), a.autorizador, a.criadoPor].filter(Boolean))].filter(id=>id!==me);
+    const recipients=ids.map(id=>byId(id).email).filter(e=>e && e.includes("@"));
+    if(!recipients.length) return;
+    const payload={
+      isNew:!!isNew, change:changeText||"", recipients,
+      link:location.origin+location.pathname,
+      activity:{
+        titulo:a.titulo, desc:a.desc||"", prazo:fmtBR(a.prazo),
+        prioridade:(PRI.find(p=>p.id===a.prioridade)||{}).nome||a.prioridade,
+        status:stById(a.status).nome,
+        responsaveis:respArr(a).map(id=>byId(id).nome).join(", "),
+        autorizador:a.autorizador?byId(a.autorizador).nome:"",
+        autor:byId(me).nome
+      }
+    };
+    await sb.functions.invoke("notify", { body: payload });
+  }catch(e){ /* e-mail nunca deve travar o app */ }
+}
+function notifyLast(a, isNew){ const h=(a.history||[]); notify(a, h.length?h[h.length-1].acao:"", isNew); }
 
 /* ══════════════════════ SEED (exemplo do enunciado) ══════════════════════ */
 function seed(){
@@ -1053,7 +1080,7 @@ function setStatus(a,st,msg){
   a.status=st; a.updatedAt=now();
   a.history.push({ator:me,acao:msg.replace(byId(me).nome+" ",""),at:now()});
   syncFlowToStatus(a);
-  persist(); render(); toast(msg);
+  persist(); render(); toast(msg); notifyLast(a,false);
 }
 
 /* ══════════════════════ AÇÕES DE FLUXO ══════════════════════ */
@@ -1083,14 +1110,14 @@ function delegateAct(a, to){
   a.responsaveis=[to]; a.responsavel=to; if(a.status==="todo") a.status="doing"; a.updatedAt=now();
   a.history.push({ator:me,acao:`delegou de ${prev} para ${byId(to).nome}`,at:now()});
   a.comments.push({autor:me,texto:`Deleguei esta atividade para ${byId(to).nome}.`,at:now(),sys:true});
-  persist();
+  persist(); notifyLast(a,false);
 }
 function completeAct(a){
   if(a.autorizador){
     a.status="approval"; a.updatedAt=now();
     syncFlowToStatus(a);
     a.history.push({ator:me,acao:`concluiu — enviado para aprovação de ${byId(a.autorizador).nome}`,at:now()});
-    persist(); render(); toast(`Enviado para aprovação de ${byId(a.autorizador).nome}`,"warn");
+    persist(); render(); toast(`Enviado para aprovação de ${byId(a.autorizador).nome}`,"warn"); notifyLast(a,false);
   }else{
     setStatus(a,"done",`${byId(me).nome} concluiu a atividade`);
   }
@@ -1099,7 +1126,7 @@ function approveAct(a){
   a.status="done"; a.updatedAt=now();
   a.flow.forEach(s=>s.status="done");
   a.history.push({ator:me,acao:`aprovou e concluiu a atividade`,at:now()});
-  persist();
+  persist(); notifyLast(a,false);
 }
 function returnAct(a, motivo){
   const ri=currentRespIndex(a);
@@ -1109,7 +1136,7 @@ function returnAct(a, motivo){
   if(ri>=0) a.flow[ri].status="current";
   a.history.push({ator:me,acao:`devolveu para ${respNames(a)}: "${motivo}"`,at:now()});
   a.comments.push({autor:me,texto:`Devolvida para ajustes: ${motivo}`,at:now(),sys:true});
-  persist();
+  persist(); notifyLast(a,false);
 }
 
 /* ══════════════════════ DETALHE ══════════════════════ */
@@ -1292,17 +1319,27 @@ function openForm(edit){
     const auth=$("#fAuth").value, prazo=$("#fPrazo").value, desc=$("#fDesc").value.trim();
     const resps=[...selResps]; if(!resps.length){toast("Escolha ao menos um responsável","warn");return;}
     if(isEdit){
-      edit.titulo=tit; edit.desc=desc; edit.prioridade=sel.pri; edit.prazo=prazo; edit.updatedAt=now();
-      if(edit.autorizador!==auth){edit.autorizador=auth; syncFlowToStatus(edit);}
+      // detecta o que mudou (para o e-mail e o histórico)
+      const changes=[];
+      const oldPrazo=edit.prazo||"", oldPri=edit.prioridade, oldTit=edit.titulo, oldDesc=edit.desc||"";
       const prevKey=respArr(edit).slice().sort().join(","), newKey=resps.slice().sort().join(",");
-      if(prevKey!==newKey){ // mudou o conjunto de responsáveis
-        const prevNames=respNames(edit);
+      if(oldTit!==tit) changes.push(`título alterado para "${tit}"`);
+      if(oldPrazo!==prazo) changes.push(`prazo alterado de ${fmtBR(oldPrazo)||"—"} para ${fmtBR(prazo)||"—"}`);
+      if(oldPri!==sel.pri) changes.push(`prioridade alterada para ${(PRI.find(p=>p.id===sel.pri)||{}).nome}`);
+      if((edit.autorizador||"")!==auth) changes.push(`autorização alterada para ${auth?byId(auth).nome:"não exige"}`);
+      if(prevKey!==newKey) changes.push(`responsáveis alterados para ${resps.map(id=>byId(id).nome).join(", ")}`);
+      if(oldDesc!==desc) changes.push(`descrição atualizada`);
+
+      edit.titulo=tit; edit.desc=desc; edit.prioridade=sel.pri; edit.prazo=prazo; edit.updatedAt=now();
+      if((edit.autorizador||"")!==auth){edit.autorizador=auth; syncFlowToStatus(edit);}
+      if(prevKey!==newKey){
         edit.responsaveis=resps; edit.responsavel=resps[0];
         const ri=currentRespIndex(edit); if(ri>=0){ edit.flow[ri].pessoas=resps.slice(); delete edit.flow[ri].pessoa; }
-        edit.history.push({ator:me,acao:`reatribuiu de ${prevNames} para ${resps.map(id=>byId(id).nome).join(", ")}`,at:now()});
       }
-      edit.history.push({ator:me,acao:`editou a atividade`,at:now()});
+      const resumo = changes.length? changes.join("; ") : "sem alterações de campo";
+      edit.history.push({ator:me,acao:`editou a atividade — ${resumo}`,at:now()});
       persist(); render(); renderDetail(edit); toast("Alterações salvas");
+      if(changes.length) notifyLast(edit,false);
     }else{
       const soloMe = resps.length===1 && resps[0]===me;
       const flow=[];
@@ -1316,7 +1353,7 @@ function openForm(edit){
         comments:[], history:[{ator:me,acao:`criou a atividade${!soloMe?` e designou para ${resps.map(id=>byId(id).nome).join(", ")}`:""}`,at:now()}],
       };
       store.activities.unshift(na); persist(); render(); closeModal();
-      toast("Atividade criada ✓"); setTimeout(()=>openDetail(na.id),120);
+      toast("Atividade criada ✓"); notify(na,"Nova tarefa atribuída a você.",true); setTimeout(()=>openDetail(na.id),120);
     }
   };
   setTimeout(()=>$("#fTit").focus(),60);
