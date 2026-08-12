@@ -178,6 +178,7 @@ input,textarea,select{font-family:inherit}
 }
 .fsel:hover{border-color:var(--bdh)}
 .fsel:focus{border-color:var(--acc);outline:none;color:var(--tx)}
+.fsel option,.sel option{background:#14182e;color:#F8FAFC}
 
 /* ─── "Para você" strip ─────────────────────────────────── */
 .mine{display:flex;gap:var(--sp-3);margin-bottom:var(--sp-5);flex-wrap:wrap}
@@ -412,7 +413,7 @@ input,textarea,select{font-family:inherit}
 const TEAM = [
   {id:"pedro",     nome:"Pedro",     papel:"Analista Jurídico Jr", cor:"#4F6EF7"},
   {id:"victor",    nome:"Victor",    papel:"Analista Sênior",      cor:"#22D3EE"},
-  {id:"ana",       nome:"Ana",       papel:"Analista Sênior",      cor:"#7B5EF8"},
+  {id:"ana",       nome:"Anna",      papel:"Analista Sênior",      cor:"#7B5EF8"},
   {id:"gabrielle", nome:"Gabrielle", papel:"Gerente Jurídica",     cor:"#F5A623"},
 ];
 const byId = id => TEAM.find(p=>p.id===id) || {id,nome:(id==null||id===""?"?":String(id)),papel:"",cor:"#64748b"};
@@ -446,7 +447,7 @@ function load(){
     const raw = localStorage.getItem(STORE_KEY);
     if(raw){const d=JSON.parse(raw); if(d && Array.isArray(d.activities)){ d.activities.forEach(normalizeAct); return d; }}
   }catch(e){}
-  return {activities: seed(), meta:{createdAt: now()}};
+  return {activities: [], meta:{createdAt: now()}};
 }
 function persist(){ localStorage.setItem(STORE_KEY, JSON.stringify(store)); if(CLOUD) scheduleCloud(); else if(API!==null) schedulePush(); }
 function now(){ return new Date().toISOString(); }
