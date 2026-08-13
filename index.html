@@ -441,6 +441,8 @@ input,textarea,select{font-family:inherit}
 .gate-back{align-self:flex-start;background:none;border:none;color:var(--tx3);font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer;padding:2px 0}
 .gate-back svg{width:13px;height:13px;transform:rotate(180deg)}
 .gate-back:hover{color:var(--tx1)}
+.resp-done{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;background:var(--ok);color:#fff}
+.resp-done svg{width:10px;height:10px}
 
 .mono{font-family:var(--fn-mono)}
 .hidden{display:none!important}
@@ -598,6 +600,7 @@ function normalizeAct(a){
   a.responsavel = a.responsaveis[0];
   a.autorizador = a.autorizador || "";
   a.prazo = a.prazo || "";
+  a.doneBy = Array.isArray(a.doneBy) ? a.doneBy.filter(id=>a.responsaveis.includes(id)) : [];
   a.comments = Array.isArray(a.comments) ? a.comments : [];
   a.history = Array.isArray(a.history) ? a.history : [];
   a.flow = Array.isArray(a.flow) && a.flow.length ? a.flow : [{pessoas:a.responsaveis.slice(),papel:"Responsável",status:"current"}];
@@ -1502,8 +1505,12 @@ function moveTo(id, target){
     return completeAct(a);
   }
   if(target==="done"){
-    if(a.autorizador && a.status!=="approval"){ return completeAct(a); }
-    return setStatus(a,"done",`${byId(me).nome} concluiu a atividade`);
+    if(a.status==="approval"){
+      if(a.autorizador===me || isMaster(me)){ approveAct(a); render(); toast("Aprovada e concluída.","ok"); return; }
+      toast("Só o autorizador pode aprovar esta atividade.","warn"); return;
+    }
+    if(!(isResp(a,me)||isMaster(me))){ toast("Apenas os responsáveis podem concluir esta atividade.","warn"); return; }
+    return completeAct(a); // aplica a regra: só fecha 100% quando todos os responsáveis concluírem
   }
   if(target==="doing"){ return setStatus(a,"doing",`${byId(me).nome} moveu para Em andamento`); }
   if(target==="todo"){ return setStatus(a,"todo",`${byId(me).nome} moveu para A fazer`); }
@@ -1546,13 +1553,32 @@ function delegateAct(a, to){
   persist(); notifyLast(a,false);
 }
 function completeAct(a){
+  const resps = respArr(a);
+  if(!Array.isArray(a.doneBy)) a.doneBy=[];
+  const master = isMaster(me);
+  // registra que ESTE responsável concluiu a sua parte
+  if(isResp(a,me) && !a.doneBy.includes(me)) a.doneBy.push(me);
+  const feitos = a.doneBy.filter(id=>resps.includes(id));
+  const allDone = resps.length>0 && resps.every(id=>a.doneBy.includes(id));
+  // conclusão PARCIAL: ainda faltam responsáveis (e não é o master forçando)
+  if(!allDone && !master){
+    if(a.status==="todo") a.status="doing";
+    a.updatedAt=now();
+    a.history.push({ator:me,acao:`concluiu sua parte (${feitos.length} de ${resps.length} responsáveis)`,at:now()});
+    persist(); render();
+    toast(`Sua parte foi concluída. Faltam ${resps.length-feitos.length} responsável(is).`,"ok");
+    notifyLast(a,false);
+    return;
+  }
+  // TODOS concluíram (ou master forçando) → fecha de verdade
+  if(master && !allDone) a.doneBy = resps.slice(); // master marca todos como concluídos
   if(a.autorizador){
     a.status="approval"; a.updatedAt=now();
     syncFlowToStatus(a);
-    a.history.push({ator:me,acao:`concluiu — enviado para aprovação de ${byId(a.autorizador).nome}`,at:now()});
+    a.history.push({ator:me,acao:`todos os responsáveis concluíram — enviado para aprovação de ${byId(a.autorizador).nome}`,at:now()});
     persist(); render(); toast(`Enviado para aprovação de ${byId(a.autorizador).nome}`,"warn"); notifyLast(a,false);
   }else{
-    setStatus(a,"done",`${byId(me).nome} concluiu a atividade`);
+    setStatus(a,"done",`${byId(me).nome} concluiu a atividade${resps.length>1?" (todos os responsáveis concluíram)":""}`);
   }
 }
 function approveAct(a){
@@ -1563,6 +1589,7 @@ function approveAct(a){
 }
 function returnAct(a, motivo){
   const ri=currentRespIndex(a);
+  a.doneBy=[]; // devolvida: responsáveis precisam concluir de novo
   a.status="doing"; a.updatedAt=now();
   const authI=a.flow.findIndex(s=>s.papel==="Autoriza");
   if(authI>=0) a.flow[authI].status="pending";
@@ -1583,14 +1610,24 @@ function renderDetail(a){
   const st=stById(a.status);
   const pri=PRI.find(p=>p.id===a.prioridade)||PRI[0];
   const master = isMaster(me);
-  const canComplete = (isResp(a,me)||master) && (a.status==="todo"||a.status==="doing");
+  const doneBy = Array.isArray(a.doneBy)?a.doneBy:[];
+  const iDidMyPart = doneBy.includes(me);
+  const multiResp = respArr(a).length>1;
+  const canComplete = (((isResp(a,me)&&!iDidMyPart))||master) && (a.status==="todo"||a.status==="doing");
   const canDelegate = (isResp(a,me)||master) && (a.status==="todo"||a.status==="doing");
   const canApprove  = (a.autorizador===me||master) && (a.status==="approval");
   const canEdit = a.criadoPor===me || isResp(a,me) || me==="gabrielle" || master;
   const canClose = (a.criadoPor===me || isResp(a,me) || me==="gabrielle" || master) && a.status!=="done" && a.status!=="arquivada";
 
   let actions="";
-  if(canComplete) actions+=`<button class="btn btn-ok" id="dComplete">${ic("check")} ${a.autorizador?"Concluir e enviar p/ aprovação":"Marcar como concluída"}</button>`;
+  if(canComplete){
+    const lbl = multiResp
+      ? (master ? "Forçar conclusão de todos" : "Concluir minha parte")
+      : (a.autorizador ? "Concluir e enviar p/ aprovação" : "Marcar como concluída");
+    actions+=`<button class="btn btn-ok" id="dComplete">${ic("check")} ${lbl}</button>`;
+  }
+  if(multiResp && isResp(a,me) && iDidMyPart && a.status!=="done" && a.status!=="arquivada")
+    actions+=`<span class="note" style="color:var(--ok)">${ic("check")} Você já concluiu sua parte. Aguardando os demais responsáveis.</span>`;
   if(canDelegate) actions+=`<button class="btn" id="dDelegate">${ic("arrow")} Delegar para…</button>`;
   if(canApprove){
     actions+=`<button class="btn btn-ok" id="dApprove">${ic("check")} Aprovar</button>`;
@@ -1618,7 +1655,8 @@ function renderDetail(a){
       ${a.desc?`<div><div class="d-lbl">Descrição</div><div class="d-desc">${esc(a.desc)}</div></div>`:""}
 
       <div class="d-grid d-sec">
-        <div class="d-meta"><span class="k">${respArr(a).length>1?"Responsáveis":"Responsável atual"}</span><span class="v" style="flex-wrap:wrap">${respArr(a).map(id=>`${avatar(id,"sm")} ${esc(byId(id).nome)}`).join('<span style="color:var(--tx4);margin:0 2px">·</span>')}</span></div>
+        <div class="d-meta"><span class="k">${respArr(a).length>1?"Responsáveis":"Responsável atual"}</span><span class="v" style="flex-wrap:wrap">${respArr(a).map(id=>`<span style="display:inline-flex;align-items:center;gap:4px">${avatar(id,"sm")} ${esc(byId(id).nome)}${doneBy.includes(id)?`<span class="resp-done" title="Concluiu sua parte">${ic("check")}</span>`:""}</span>`).join('<span style="color:var(--tx4);margin:0 6px">·</span>')}</span></div>
+        ${multiResp && a.status!=="done" && a.status!=="arquivada"?`<div class="d-meta"><span class="k">Progresso</span><span class="v">${respArr(a).filter(id=>doneBy.includes(id)).length} de ${respArr(a).length} responsáveis concluíram</span></div>`:""}
         <div class="d-meta"><span class="k">Autorização</span><span class="v">${a.autorizador?avatar(a.autorizador,"sm")+" "+esc(byId(a.autorizador).nome):"<span style='color:var(--tx3)'>Não exige</span>"}</span></div>
       </div>
 
