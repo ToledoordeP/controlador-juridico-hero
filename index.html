@@ -496,10 +496,10 @@ const TEAM = [
 const byId = id => TEAM.find(p=>p.id===id) || {id,nome:(id==null||id===""?"?":String(id)),papel:"",cor:"#64748b"};
 
 const STATUS = [
+  {id:"done",     nome:"Concluída",            cor:"#10B981", dot:"#10B981"},
   {id:"todo",     nome:"A fazer",              cor:"#64748b", dot:"#64748b"},
   {id:"doing",    nome:"Em andamento",         cor:"#4F6EF7", dot:"#4F6EF7"},
   {id:"approval", nome:"Aguardando aprovação", cor:"#F59E0B", dot:"#F59E0B"},
-  {id:"done",     nome:"Concluída",            cor:"#10B981", dot:"#10B981"},
   {id:"arquivada",nome:"Arquivada",            cor:"#475569", dot:"#475569"},
 ];
 const stById = id => STATUS.find(s=>s.id===id) || STATUS[0];
