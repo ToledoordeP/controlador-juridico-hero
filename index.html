@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>Fluxo Jurídico — Atividades da Equipe · HERO</title>
 
 <!-- ══════════════════════════════════════════════════════════════════
@@ -1587,6 +1590,15 @@ function approveAct(a){
   a.history.push({ator:me,acao:`aprovou e concluiu a atividade`,at:now()});
   persist(); notifyLast(a,false);
 }
+function reactivateAct(a){
+  a.doneBy=[];                       // reabre: zera as conclusões
+  a.status = respArr(a).length ? "doing" : "todo";
+  a.updatedAt=now();
+  a.flow.forEach(s=>{ if(s.papel==="Autoriza") s.status="pending"; });
+  syncFlowToStatus(a);
+  a.history.push({ator:me,acao:`reativou a atividade`,at:now()});
+  persist(); render(); toast("Atividade reativada.","ok"); notifyLast(a,false);
+}
 function returnAct(a, motivo){
   const ri=currentRespIndex(a);
   a.doneBy=[]; // devolvida: responsáveis precisam concluir de novo
@@ -1635,6 +1647,7 @@ function renderDetail(a){
   }
   if(canClose) actions+=`<button class="btn btn-warn" id="dEncerrar">${ic("flag")} Encerrar atividade</button>`;
   if(a.status==="done"&&canEdit) actions+=`<button class="btn btn-ghost btn-sm" id="dArchive">Arquivar</button>`;
+  if((a.status==="done"||a.status==="arquivada")&&canEdit) actions+=`<button class="btn" id="dReactivate">${ic("arrow")} Reativar atividade</button>`;
   if(!actions) actions=`<span class="note">Você pode comentar. Ações de fluxo ficam disponíveis para ${respArr(a).length>1?"os responsáveis":"o responsável"} (${esc(respNames(a))})${a.autorizador?` e o autorizador (${esc(byId(a.autorizador).nome)})`:""}.</span>`;
 
   const body=`
@@ -1710,6 +1723,7 @@ function renderDetail(a){
   $("#dApprove")&&($("#dApprove").onclick=()=>{approveAct(a);render();renderDetail(a);toast("Atividade aprovada e concluída ✓");});
   $("#dReturn")&&($("#dReturn").onclick=()=>openReturn(a));
   $("#dArchive")&&($("#dArchive").onclick=()=>{setStatus(a,"arquivada",`${byId(me).nome} arquivou a atividade`);closeModal();});
+  $("#dReactivate")&&($("#dReactivate").onclick=()=>{reactivateAct(a);renderDetail(a);});
   $("#dEncerrar")&&($("#dEncerrar").onclick=()=>openClose(a));
   $("#dEdit")&&($("#dEdit").onclick=()=>openForm(a));
 }
