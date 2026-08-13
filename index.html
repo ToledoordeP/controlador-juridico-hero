@@ -434,6 +434,13 @@ input,textarea,select{font-family:inherit}
 .gate-master{border-color:#10B98155;background:linear-gradient(135deg,#10B98118,var(--glass))}
 .gate-master:hover{border-color:#10B981aa}
 .master-badge{display:inline-block;vertical-align:middle;margin-left:7px;font-family:var(--fn-mono);font-size:9px;font-weight:700;letter-spacing:.7px;color:#10B981;background:#10B98122;border:1px solid #10B98155;border-radius:5px;padding:1px 6px}
+.gate-login{display:flex;flex-direction:column;gap:12px;text-align:left;animation:fadeUp .3s both}
+.gate-login-head{display:flex;align-items:center;gap:12px;margin:2px 0 4px}
+.gate-login-head .nm{font-size:15px;font-weight:600}
+.gate-login-head .rl{font-size:11px;color:var(--tx3)}
+.gate-back{align-self:flex-start;background:none;border:none;color:var(--tx3);font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer;padding:2px 0}
+.gate-back svg{width:13px;height:13px;transform:rotate(180deg)}
+.gate-back:hover{color:var(--tx1)}
 
 .mono{font-family:var(--fn-mono)}
 .hidden{display:none!important}
@@ -844,7 +851,31 @@ function renderGate(){
       <div><div class="nm">${esc(p.nome)}${p.master?' <span class="master-badge">MASTER</span>':''}</div><div class="rl">${esc(p.papel)}</div></div>
       <span class="go">${ic("arrow")}</span>
     </button>`).join("");
-  $$(".gate-p").forEach(b=>b.onclick=()=>{ setUser(b.dataset.id); });
+  $$(".gate-p").forEach(b=>b.onclick=()=>{ const id=b.dataset.id; if(CLOUD) gateAskPassword(id); else setUser(id); });
+}
+/* CLOUD: ao clicar num perfil, pede a senha individual e faz login no Supabase */
+async function gateAskPassword(id){
+  const p=byId(id);
+  $("#gatePeople").innerHTML=`
+    <div class="gate-login">
+      <button class="gate-back" id="glBack">${ic("arrow")} voltar</button>
+      <div class="gate-login-head">${avatar(id,"lg")}<div><div class="nm">${esc(p.nome)}${p.master?' <span class="master-badge">MASTER</span>':''}</div><div class="rl">${esc(p.papel)}</div></div></div>
+      <input class="inp" id="glPass" type="password" placeholder="Sua senha" autocomplete="current-password">
+      <button class="btn btn-primary" id="glGo" style="justify-content:center;padding:11px">Entrar</button>
+      <div id="glErr" style="color:#fca5a5;font-size:12px;min-height:15px;text-align:center"></div>
+    </div>`;
+  const go=async()=>{
+    const err=$("#glErr"), btn=$("#glGo");
+    err.textContent=""; btn.disabled=true; btn.textContent="Entrando…";
+    const {error}=await sb.auth.signInWithPassword({email:p.email, password:$("#glPass").value});
+    if(error){ err.textContent="Senha incorreta ou conta ainda não criada."; btn.disabled=false; btn.textContent="Entrar"; return; }
+    setUser(id);
+    await cloudEnter();
+  };
+  $("#glGo").onclick=go;
+  $("#glPass").addEventListener("keydown",e=>{if(e.key==="Enter")go();});
+  $("#glBack").onclick=()=>renderGate();
+  setTimeout(()=>{const el=$("#glPass"); if(el) el.focus();},50);
 }
 function setUser(id){
   me = id; localStorage.setItem(USER_KEY,id);
@@ -857,10 +888,12 @@ function renderUserChip(){
   const p = byId(me);
   $("#userChip").innerHTML = `${avatar(me)}<div style="text-align:left"><div class="nm">${esc(p.nome)}</div><div class="rl">${esc(p.papel)}</div></div>${ic("arrow")}`;
 }
-$("#userChip") && ($("#userChip").onclick = ()=>{
-  // troca rápida de usuário
+$("#userChip") && ($("#userChip").onclick = async ()=>{
+  // trocar de usuário: no modo nuvem, desloga a conta atual antes de mostrar o seletor
+  if(CLOUD){ try{ await sb.auth.signOut(); }catch(e){} me=null; localStorage.removeItem(USER_KEY); }
   $("#hdr").classList.add("hidden"); $("#main").classList.add("hidden");
   $("#gate").classList.remove("hidden");
+  renderGate();
 });
 
 /* ══════════════════════ TABS ══════════════════════ */
@@ -1912,17 +1945,30 @@ function showAuthGate(msg){
   if(msg) g.querySelector("#agErr").textContent=msg;
   setTimeout(()=>g.querySelector("#agPass").focus(),60);
 }
-async function afterAuth(){
+/* mapeia o e-mail da sessão logada -> id do perfil (login individual) */
+function meFromSession(session){
+  const email=(session && session.user && session.user.email || "").toLowerCase();
+  const p=TEAM.find(t=>(t.email||"").toLowerCase()===email);
+  return p ? p.id : null;
+}
+/* mostra a tela de escolha de perfil (que agora pede a senha de cada um) */
+function showGatePicker(msg){
+  hideBoot();
   document.getElementById("gate").classList.remove("hidden");
+  document.getElementById("hdr").classList.add("hidden");
+  document.getElementById("main").classList.add("hidden");
   renderGate();
-  if(me && TEAM.some(p=>p.id===me)) setUser(me);
+  if(msg){ const box=$("#gatePeople"); if(box){ const d=document.createElement("div"); d.style.cssText="color:#fca5a5;font-size:12px;text-align:center;margin-top:10px"; d.textContent=msg; box.appendChild(d);} }
+}
+/* sessão válida -> carrega dados da nuvem e entra no app */
+async function cloudEnter(){
   await cloudLoad();
   await cloudPush();               // sobe atividades que só existiam localmente (ex.: exemplo inicial)
   await mapsLoad();                // carrega os mapas mentais da equipe
-  if(me && TEAM.some(p=>p.id===me)) render();
   cloudSubscribe();
   mapsSubscribe();
   setConn(connState);
+  render();
   hideBoot();
 }
 
@@ -1931,9 +1977,13 @@ async function boot(){
   if(CLOUD){
     try{
       const {data}=await sb.auth.getSession();
-      if(data && data.session){ afterAuth(); }
-      else{ showAuthGate(); }
-    }catch(e){ showAuthGate("Não consegui conectar ao Supabase. Confira a conexão."); }
+      if(data && data.session){
+        const id=meFromSession(data.session);
+        if(id){ setUser(id); await cloudEnter(); return; }
+        await sb.auth.signOut();   // sessão de e-mail desconhecido: derruba e pede login
+      }
+      showGatePicker();
+    }catch(e){ showGatePicker("Não consegui conectar ao Supabase. Confira a conexão."); }
     return;
   }
   // modo servidor-na-rede (http) ou local (arquivo)
