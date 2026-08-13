@@ -25,6 +25,11 @@ window.FLUXO_CONFIG = {
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
+<!-- Tipografia padronizada (mesma família do dashboard HERO) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=Fraunces:opsz,wght@9..144,300;9..144,500;9..144,600;9..144,700&display=swap" rel="stylesheet">
+
 <style>
 /* ═══════════════════════════════════════════════════════════
    FLUXO JURÍDICO — sistema de atividades da equipe
@@ -276,6 +281,9 @@ input,textarea,select{font-family:inherit}
 .mm-bar{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--bd);flex-wrap:wrap;background:rgba(8,10,24,.55)}
 .mm-bar .sep{width:1px;height:22px;background:var(--bd);margin:0 2px}
 .mm-hint{font-size:10.5px;color:var(--tx3)}
+.mm-zoom{display:flex;align-items:center;gap:4px}
+.mm-zoom .btn{padding:4px 9px;min-width:28px}
+.mm-zlbl{font-family:var(--fn-mono);font-size:11px;color:var(--tx2);min-width:42px;text-align:center}
 .mm-canvas{position:relative;flex:1;overflow:hidden;cursor:grab;background-image:radial-gradient(circle at 1px 1px,rgba(255,255,255,.05) 1px,transparent 0);background-size:24px 24px}
 .mm-canvas.panning{cursor:grabbing}
 .mm-canvas.panning .mm-node{cursor:grabbing}
@@ -400,12 +408,44 @@ input,textarea,select{font-family:inherit}
 
 .mono{font-family:var(--fn-mono)}
 .hidden{display:none!important}
+
+/* ─── POLIMENTO / INTERATIVIDADE ─────────────────────────── */
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes pulseDot{0%,100%{box-shadow:0 0 0 0 rgba(16,185,129,.5)}70%{box-shadow:0 0 0 5px rgba(16,185,129,0)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+#viewRoot{animation:fadeIn var(--t-med)}
+.mine-card{animation:fadeUp var(--t-med) both}
+.mine-card:nth-child(2){animation-delay:.04s}.mine-card:nth-child(3){animation-delay:.08s}.mine-card:nth-child(4){animation-delay:.12s}
+.card{animation:fadeUp .22s both}
+.conn .cdot[style*="#10B981"]{animation:pulseDot 2.4s infinite}
+.btn:active{transform:translateY(1px)}
+.tab{transition:color var(--t-fast),background var(--t-fast),box-shadow var(--t-fast)}
+.gate-card{animation:fadeUp .4s both}
+.gate-p{animation:fadeUp .35s both}
+.gate-p:nth-child(2){animation-delay:.05s}.gate-p:nth-child(3){animation-delay:.1s}.gate-p:nth-child(4){animation-delay:.15s}
+.mm-node{transition:box-shadow var(--t-fast),border-color var(--t-fast),transform 40ms linear}
+.jn,.rm-stop{animation:fadeUp .3s both}
+/* Loader de inicialização */
+.boot{position:fixed;inset:0;z-index:900;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:radial-gradient(ellipse 70% 50% at 50% 0%,rgba(79,110,247,.14),transparent),var(--bg)}
+.boot-mark{width:52px;height:52px;border-radius:15px;background:linear-gradient(135deg,var(--acc),var(--acc2));display:flex;align-items:center;justify-content:center;font-family:var(--fn-mono);font-weight:700;color:#fff;font-size:17px;box-shadow:0 8px 30px rgba(79,110,247,.4),inset 0 1px 0 rgba(255,255,255,.2);animation:fadeUp .4s both}
+.boot-spin{width:26px;height:26px;border:2.5px solid rgba(255,255,255,.12);border-top-color:var(--acc);border-radius:50%;animation:spin .8s linear infinite}
+.boot-txt{font-size:12px;color:var(--tx3);letter-spacing:.3px}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
 @media(max-width:1100px){.board{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:820px){.board{grid-template-columns:1fr 1fr}.wrap{padding:var(--sp-4)}.hdr{padding:0 var(--sp-4)}.hdr-logo .sub{display:none}}
 @media(max-width:560px){.board{grid-template-columns:1fr}.grid2,.d-grid{grid-template-columns:1fr}.tab span.lbl{display:none}}
 </style>
 </head>
 <body>
+
+<!-- LOADER DE INICIALIZAÇÃO -->
+<div class="boot" id="boot">
+  <div class="boot-mark">HG</div>
+  <div class="boot-spin"></div>
+  <div class="boot-txt">Carregando o Fluxo Jurídico…</div>
+</div>
 
 <!-- LOGIN GATE -->
 <div class="gate" id="gate">
@@ -480,7 +520,7 @@ let me = localStorage.getItem(USER_KEY) || null;
 let view = "quadro";
 let filter = {q:"", pri:"", pessoa:"", mine:false};
 /* estado dos mapas mentais */
-let currentMapId = null, mmSelNode = null, mmPan = {x:0,y:0};
+let currentMapId = null, mmSelNode = null, mmPan = {x:0,y:0}, mmZoom = 1;
 let mmDrag = null, mmDragInfo = null, mmMoved = false, mmGlobalBound = false;
 const MM_COLORS = ["#4F6EF7","#22D3EE","#7B5EF8","#10B981","#F59E0B","#EF4444","#F5A623","#94A3B8"];
 
@@ -1071,7 +1111,14 @@ function mapsHTML(){
       <button class="btn btn-sm" id="mmColor" ${sel?'':'disabled'}>Cor</button>
       <button class="btn btn-sm btn-err" id="mmDel" ${canDel?'':'disabled'}>Excluir nó</button>`:''}
       <div style="flex:1"></div>
-      ${cur?`<span class="mm-hint">clique = seleciona · 2 cliques = edita · arraste o nó = mover · arraste o fundo = navegar</span>`:''}
+      ${cur?`<span class="mm-hint">clique = seleciona · 2 cliques = edita · arraste = mover · scroll = zoom</span>
+      <div class="sep"></div>
+      <div class="mm-zoom">
+        <button class="btn btn-sm btn-ghost" id="mmZout" title="Diminuir">−</button>
+        <span id="mmZlbl" class="mm-zlbl">100%</span>
+        <button class="btn btn-sm btn-ghost" id="mmZin" title="Aumentar">+</button>
+        <button class="btn btn-sm btn-ghost" id="mmZreset" title="Redefinir">Ajustar</button>
+      </div>`:''}
     </div>
     <div class="mm-canvas" id="mmCanvas">
       ${cur? `<div class="mm-world" id="mmWorld"></div>` :
@@ -1084,10 +1131,11 @@ function mapLinksSVG(m){
   m.nodes.forEach(n=>{ if(n.parent){ const p=m.nodes.find(x=>x.id===n.parent); if(p) lines+=`<line x1="${p.x}" y1="${p.y}" x2="${n.x}" y2="${n.y}" stroke="${n.cor||'#4F6EF7'}" stroke-width="2" stroke-opacity=".45"/>`; } });
   return `<svg class="mm-links" id="mmLinks" width="1" height="1" style="overflow:visible">${lines}</svg>`;
 }
+function mmApplyTransform(){ const w=$("#mmWorld"); if(w) w.style.transform=`translate(${mmPan.x}px,${mmPan.y}px) scale(${mmZoom})`; }
 function renderMapCanvas(){
   const world=$("#mmWorld"); if(!world) return;
   const m=store.maps.find(x=>x.id===currentMapId); if(!m) return;
-  world.style.transform=`translate(${mmPan.x}px,${mmPan.y}px)`;
+  world.style.transform=`translate(${mmPan.x}px,${mmPan.y}px) scale(${mmZoom})`;
   world.innerHTML = mapLinksSVG(m) + m.nodes.map(n=>
     `<div class="mm-node ${n.parent?'':'root'} ${n.id===mmSelNode?'sel':''}" data-nid="${n.id}" style="left:${n.x}px;top:${n.y}px;--nc:${n.cor||'#4F6EF7'}">${esc(n.texto||'')}</div>`
   ).join("");
@@ -1105,7 +1153,7 @@ function newMap(){
   const titulo=(t.trim()||"Novo projeto");
   const root={id:uid(), texto:titulo, x:720, y:330, cor:MM_COLORS[0], parent:null};
   const m={id:uid(), titulo, criadoPor:me, createdAt:now(), updatedAt:now(), nodes:[root]};
-  store.maps.unshift(m); currentMapId=m.id; mmSelNode=root.id; mmPan={x:0,y:0};
+  store.maps.unshift(m); currentMapId=m.id; mmSelNode=root.id; mmPan={x:0,y:0}; mmZoom=1;
   saveMaps(); render(); toast("Mapa criado");
 }
 function renameMap(){
@@ -1158,7 +1206,7 @@ function startEditNode(nid){
 }
 function bindMaps(){
   const cur=store.maps.find(m=>m.id===currentMapId && !m.deleted);
-  const sel=$("#mmSel"); if(sel) sel.onchange=()=>{ currentMapId=sel.value; mmSelNode=null; mmPan={x:0,y:0}; render(); };
+  const sel=$("#mmSel"); if(sel) sel.onchange=()=>{ currentMapId=sel.value; mmSelNode=null; mmPan={x:0,y:0}; mmZoom=1; render(); };
   $("#mmNew")&&($("#mmNew").onclick=newMap);
   $("#mmNew2")&&($("#mmNew2").onclick=newMap);
   $("#mmRenameMap")&&($("#mmRenameMap").onclick=renameMap);
@@ -1182,14 +1230,32 @@ function bindMaps(){
     e.preventDefault();
   };
   canvas.ondblclick=(e)=>{ const nodeEl=e.target.closest('.mm-node'); if(nodeEl) startEditNode(nodeEl.dataset.nid); };
+  canvas.onwheel=(e)=>{
+    e.preventDefault();
+    const rect=canvas.getBoundingClientRect();
+    mmZoomAt(e.clientX-rect.left, e.clientY-rect.top, e.deltaY<0?1.12:1/1.12);
+  };
+  $("#mmZin")&&($("#mmZin").onclick=()=>{ const r=canvas.getBoundingClientRect(); mmZoomAt(r.width/2, r.height/2, 1.2); });
+  $("#mmZout")&&($("#mmZout").onclick=()=>{ const r=canvas.getBoundingClientRect(); mmZoomAt(r.width/2, r.height/2, 1/1.2); });
+  $("#mmZreset")&&($("#mmZreset").onclick=()=>{ mmZoom=1; mmPan={x:0,y:0}; mmApplyTransform(); updateZoomLabel(); });
+  updateZoomLabel();
   bindMapsGlobal();
 }
+function mmZoomAt(cx, cy, factor){
+  const old=mmZoom;
+  const z=Math.min(2.4, Math.max(0.35, old*factor));
+  if(z===old) return;
+  const wx=(cx-mmPan.x)/old, wy=(cy-mmPan.y)/old;
+  mmPan.x=cx-wx*z; mmPan.y=cy-wy*z; mmZoom=z;
+  mmApplyTransform(); updateZoomLabel();
+}
+function updateZoomLabel(){ const el=$("#mmZlbl"); if(el) el.textContent=Math.round(mmZoom*100)+"%"; }
 function bindMapsGlobal(){
   if(mmGlobalBound) return; mmGlobalBound=true;
   document.addEventListener('mousemove', e=>{
     if(!mmDrag) return;
     if(mmDrag==='node'){
-      const d=mmDragInfo; const dx=e.clientX-d.mx, dy=e.clientY-d.my;
+      const d=mmDragInfo; const dx=(e.clientX-d.mx)/mmZoom, dy=(e.clientY-d.my)/mmZoom;
       if(Math.abs(dx)+Math.abs(dy)>3) mmMoved=true;
       d.node.x=d.nx+dx; d.node.y=d.ny+dy;
       const el=document.querySelector(`.mm-node[data-nid="${d.nid}"]`);
@@ -1197,7 +1263,7 @@ function bindMapsGlobal(){
       redrawMapLinks();
     }else if(mmDrag==='pan'){
       const d=mmDragInfo; mmPan.x=d.px+(e.clientX-d.mx); mmPan.y=d.py+(e.clientY-d.my);
-      const w=$("#mmWorld"); if(w) w.style.transform=`translate(${mmPan.x}px,${mmPan.y}px)`;
+      mmApplyTransform();
     }
   });
   document.addEventListener('mouseup', ()=>{
@@ -1713,8 +1779,10 @@ $("#btnNew").onclick=()=>openForm(null);
 $("#btnSync").onclick=openSync;
 
 /* ══════════════════════ GATE DE SENHA (nuvem) ══════════════════════ */
+function hideBoot(){ const b=document.getElementById("boot"); if(b){ b.style.transition="opacity .35s"; b.style.opacity="0"; setTimeout(()=>b.remove(),360); } }
 function showAuthGate(msg){
   document.getElementById("gate").classList.add("hidden");
+  hideBoot();
   let g=document.getElementById("authgate");
   if(!g){
     g=document.createElement("div"); g.className="gate"; g.id="authgate";
@@ -1754,6 +1822,7 @@ async function afterAuth(){
   cloudSubscribe();
   mapsSubscribe();
   setConn(connState);
+  hideBoot();
 }
 
 /* ══════════════════════ BOOT ══════════════════════ */
@@ -1774,6 +1843,7 @@ async function boot(){
     startPolling();
   }
   setConn(connState);
+  hideBoot();
 }
 boot();
 </script>
