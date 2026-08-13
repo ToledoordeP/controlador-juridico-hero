@@ -44,3 +44,23 @@ end $$;
 --    • Password: a senha que você vai passar para a equipe
 --    • marque "Auto Confirm User" (dispensa e-mail de confirmação)
 -- ============================================================
+
+-- ============================================================
+--  MAPAS MENTAIS (aba "Mapas mentais") — mesma estrutura
+-- ============================================================
+create table if not exists public.mapas (
+  id          text primary key,
+  data        jsonb       not null,
+  updated_at  timestamptz not null default now()
+);
+alter table public.mapas enable row level security;
+drop policy if exists "mapas_select" on public.mapas;
+drop policy if exists "mapas_insert" on public.mapas;
+drop policy if exists "mapas_update" on public.mapas;
+create policy "mapas_select" on public.mapas for select to authenticated using (true);
+create policy "mapas_insert" on public.mapas for insert to authenticated with check (true);
+create policy "mapas_update" on public.mapas for update to authenticated using (true) with check (true);
+do $$
+begin
+  begin alter publication supabase_realtime add table public.mapas; exception when duplicate_object then null; end;
+end $$;

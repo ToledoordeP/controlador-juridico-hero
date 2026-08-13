@@ -271,6 +271,27 @@ input,textarea,select{font-family:inherit}
 .jn .jsub{font-size:9.5px;color:var(--tx3);text-align:center;line-height:1.25}
 .jc{flex:0 0 auto;width:70px;height:60px;margin-top:12px}
 
+/* ─── MAPAS MENTAIS ─── */
+.mm{display:flex;flex-direction:column;height:calc(100vh - 150px);min-height:480px;border:1px solid var(--bd);border-radius:var(--r2);overflow:hidden;background:var(--s1)}
+.mm-bar{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--bd);flex-wrap:wrap;background:rgba(8,10,24,.55)}
+.mm-bar .sep{width:1px;height:22px;background:var(--bd);margin:0 2px}
+.mm-hint{font-size:10.5px;color:var(--tx3)}
+.mm-canvas{position:relative;flex:1;overflow:hidden;cursor:grab;background-image:radial-gradient(circle at 1px 1px,rgba(255,255,255,.05) 1px,transparent 0);background-size:24px 24px}
+.mm-canvas.panning{cursor:grabbing}
+.mm-canvas.panning .mm-node{cursor:grabbing}
+.mm-world{position:absolute;left:0;top:0;transform-origin:0 0;will-change:transform}
+.mm-links{position:absolute;left:0;top:0;overflow:visible;pointer-events:none}
+.mm-node{position:absolute;transform:translate(-50%,-50%);max-width:210px;min-width:56px;background:var(--s4);
+  border:1.5px solid var(--nc,var(--acc));border-radius:10px;padding:8px 13px;font-size:12.5px;color:var(--tx);
+  cursor:grab;user-select:none;box-shadow:var(--sh-sm);text-align:center;line-height:1.35;white-space:pre-wrap;word-break:break-word}
+.mm-node:hover{border-color:var(--nc,var(--acc));filter:brightness(1.08)}
+.mm-node.root{background:linear-gradient(135deg,var(--nc,var(--acc)),var(--acc2));border:none;color:#fff;font-weight:700;font-size:13.5px;padding:10px 16px}
+.mm-node.sel{box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--nc,var(--acc)),0 6px 22px rgba(0,0,0,.45);z-index:3}
+.mm-node.editing{cursor:text}
+.mm-in{background:transparent;border:none;outline:none;color:inherit;font:inherit;text-align:center;width:100%;min-width:90px}
+.mm-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;text-align:center;padding:24px;color:var(--tx3)}
+.mm-empty svg{width:40px;height:40px;color:var(--tx4)}
+
 /* ─── FEED ───────────────────────────────────────────────── */
 .feed{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:2px}
 .feed-item{display:flex;gap:12px;padding:12px 4px;border-bottom:1px solid var(--bd);cursor:pointer}
@@ -454,9 +475,14 @@ const USER_KEY  = "hero_fluxo_user";
 
 /* ══════════════════════ STATE ══════════════════════ */
 let store = load();
+if(!Array.isArray(store.maps)) store.maps = [];
 let me = localStorage.getItem(USER_KEY) || null;
 let view = "quadro";
 let filter = {q:"", pri:"", pessoa:"", mine:false};
+/* estado dos mapas mentais */
+let currentMapId = null, mmSelNode = null, mmPan = {x:0,y:0};
+let mmDrag = null, mmDragInfo = null, mmMoved = false, mmGlobalBound = false;
+const MM_COLORS = ["#4F6EF7","#22D3EE","#7B5EF8","#10B981","#F59E0B","#EF4444","#F5A623","#94A3B8"];
 
 function load(){
   try{
@@ -767,15 +793,12 @@ $("#userChip") && ($("#userChip").onclick = ()=>{
 /* ══════════════════════ TABS ══════════════════════ */
 function renderTabs(){
   const defs=[
-    {id:"quadro",  nome:"Quadro",  icon:"inbox"},
-    {id:"roadmap", nome:"Roadmap", icon:"share"},
-    {id:"feed",    nome:"Atualizações", icon:"bell"},
+    {id:"quadro", nome:"Quadro", icon:"inbox"},
+    {id:"mapas",  nome:"Mapas mentais", icon:"share"},
   ];
-  const pend = pendingForMe();
   $("#tabs").innerHTML = defs.map(d=>`
     <button class="tab ${view===d.id?'on':''}" data-v="${d.id}">
       ${ic(d.icon)}<span class="lbl">${d.nome}</span>
-      ${d.id==="feed"&&pend?`<span class="cnt">${pend}</span>`:""}
     </button>`).join("");
   $$(".tab").forEach(t=>t.onclick=()=>{view=t.dataset.v;renderTabs();render();});
 }
@@ -811,12 +834,14 @@ function visibleActs(){
 function render(){
   renderTabs();
   const m=$("#main");
-  m.innerHTML = toolbarHTML() + (view==="quadro"?mineStripHTML():"") + `<div id="viewRoot"></div>`;
-  bindToolbar();
-  const root=$("#viewRoot");
-  if(view==="quadro") root.innerHTML = kanbanHTML();
-  else if(view==="roadmap") root.innerHTML = roadmapHTML();
-  else root.innerHTML = feedHTML();
+  if(view==="quadro"){
+    m.innerHTML = toolbarHTML() + mineStripHTML() + `<div id="viewRoot"></div>`;
+    bindToolbar();
+    $("#viewRoot").innerHTML = kanbanHTML();
+  }else if(view==="mapas"){
+    m.innerHTML = `<div id="viewRoot"></div>`;
+    $("#viewRoot").innerHTML = mapsHTML();
+  }
   bindView();
 }
 
@@ -841,11 +866,7 @@ function bindToolbar(){
   $("#fmine").onclick = ()=>{filter.mine=!filter.mine; render();};
 }
 function refreshView(){
-  const root=$("#viewRoot");
-  if(view==="quadro") root.innerHTML=kanbanHTML();
-  else if(view==="roadmap") root.innerHTML=roadmapHTML();
-  else root.innerHTML=feedHTML();
-  bindView();
+  if(view==="quadro"){ $("#viewRoot").innerHTML=kanbanHTML(); bindView(); }
 }
 
 /* ── "Para você" ── */
@@ -1029,6 +1050,215 @@ function emptyHTML(h,p){
   return `<div class="empty">${ic("inbox")}<h3>${esc(h)}</h3><p>${esc(p)}</p></div>`;
 }
 
+/* ══════════════════════ MAPAS MENTAIS ══════════════════════ */
+function mapsHTML(){
+  const maps=(store.maps||[]).filter(m=>!m.deleted);
+  let cur = maps.find(m=>m.id===currentMapId);
+  if(!cur){ cur = maps[0]; currentMapId = cur? cur.id : null; }
+  const sel = cur && cur.nodes.find(n=>n.id===mmSelNode);
+  const canDel = sel && sel.parent;
+  return `<div class="mm">
+    <div class="mm-bar">
+      <select class="fsel" id="mmSel" style="min-width:160px;max-width:240px">
+        ${maps.length? maps.map(m=>`<option value="${m.id}" ${m.id===currentMapId?'selected':''}>${esc(m.titulo)}</option>`).join("") : `<option>— nenhum mapa —</option>`}
+      </select>
+      <button class="btn btn-sm btn-primary" id="mmNew">${ic("plus")} Novo mapa</button>
+      ${cur?`<button class="btn btn-sm btn-ghost" id="mmRenameMap">Renomear</button>
+      <button class="btn btn-sm btn-err" id="mmDelMap">Excluir mapa</button>
+      <div class="sep"></div>
+      <button class="btn btn-sm" id="mmAdd" ${sel?'':'disabled'}>${ic("plus")} Nó filho</button>
+      <button class="btn btn-sm" id="mmRename" ${sel?'':'disabled'}>Renomear nó</button>
+      <button class="btn btn-sm" id="mmColor" ${sel?'':'disabled'}>Cor</button>
+      <button class="btn btn-sm btn-err" id="mmDel" ${canDel?'':'disabled'}>Excluir nó</button>`:''}
+      <div style="flex:1"></div>
+      ${cur?`<span class="mm-hint">clique = seleciona · 2 cliques = edita · arraste o nó = mover · arraste o fundo = navegar</span>`:''}
+    </div>
+    <div class="mm-canvas" id="mmCanvas">
+      ${cur? `<div class="mm-world" id="mmWorld"></div>` :
+        `<div class="mm-empty">${ic("share")}<div><b style="color:var(--tx2);font-size:15px">Nenhum mapa mental ainda</b><br><span style="font-size:12.5px">Crie um mapa para organizar um projeto com a equipe.</span></div><button class="btn btn-primary" id="mmNew2">${ic("plus")} Criar primeiro mapa</button></div>`}
+    </div>
+  </div>`;
+}
+function mapLinksSVG(m){
+  let lines="";
+  m.nodes.forEach(n=>{ if(n.parent){ const p=m.nodes.find(x=>x.id===n.parent); if(p) lines+=`<line x1="${p.x}" y1="${p.y}" x2="${n.x}" y2="${n.y}" stroke="${n.cor||'#4F6EF7'}" stroke-width="2" stroke-opacity=".45"/>`; } });
+  return `<svg class="mm-links" id="mmLinks" width="1" height="1" style="overflow:visible">${lines}</svg>`;
+}
+function renderMapCanvas(){
+  const world=$("#mmWorld"); if(!world) return;
+  const m=store.maps.find(x=>x.id===currentMapId); if(!m) return;
+  world.style.transform=`translate(${mmPan.x}px,${mmPan.y}px)`;
+  world.innerHTML = mapLinksSVG(m) + m.nodes.map(n=>
+    `<div class="mm-node ${n.parent?'':'root'} ${n.id===mmSelNode?'sel':''}" data-nid="${n.id}" style="left:${n.x}px;top:${n.y}px;--nc:${n.cor||'#4F6EF7'}">${esc(n.texto||'')}</div>`
+  ).join("");
+}
+function redrawMapLinks(){
+  const svg=$("#mmLinks"); const m=store.maps.find(x=>x.id===currentMapId); if(!svg||!m) return;
+  let lines=""; m.nodes.forEach(n=>{ if(n.parent){ const p=m.nodes.find(x=>x.id===n.parent); if(p) lines+=`<line x1="${p.x}" y1="${p.y}" x2="${n.x}" y2="${n.y}" stroke="${n.cor||'#4F6EF7'}" stroke-width="2" stroke-opacity=".45"/>`; } });
+  svg.innerHTML=lines;
+}
+function touchMap(m){ m.updatedAt=now(); }
+function saveMaps(){ localStorage.setItem(STORE_KEY, JSON.stringify(store)); if(CLOUD) scheduleMapsPush(); }
+
+function newMap(){
+  const t=prompt("Nome do mapa (projeto):",""); if(t===null) return;
+  const titulo=(t.trim()||"Novo projeto");
+  const root={id:uid(), texto:titulo, x:720, y:330, cor:MM_COLORS[0], parent:null};
+  const m={id:uid(), titulo, criadoPor:me, createdAt:now(), updatedAt:now(), nodes:[root]};
+  store.maps.unshift(m); currentMapId=m.id; mmSelNode=root.id; mmPan={x:0,y:0};
+  saveMaps(); render(); toast("Mapa criado");
+}
+function renameMap(){
+  const m=store.maps.find(x=>x.id===currentMapId); if(!m) return;
+  const t=prompt("Renomear mapa:", m.titulo); if(t===null) return;
+  m.titulo=t.trim()||m.titulo; touchMap(m); saveMaps(); render();
+}
+function deleteMap(){
+  const m=store.maps.find(x=>x.id===currentMapId); if(!m) return;
+  if(!confirm(`Excluir o mapa "${m.titulo}"? Todos os nós serão apagados.`)) return;
+  const tomb={...m, deleted:true, updatedAt:now()};
+  store.maps=store.maps.filter(x=>x.id!==m.id);
+  if(CLOUD && sb){ try{ sb.from("mapas").upsert([{id:tomb.id,data:tomb,updated_at:tomb.updatedAt}],{onConflict:"id"}); }catch(e){} lastMapsSynced[tomb.id]=JSON.stringify(tomb); }
+  localStorage.setItem(STORE_KEY, JSON.stringify(store));
+  currentMapId = store.maps[0]? store.maps[0].id : null; mmSelNode=null;
+  render(); toast("Mapa excluído","warn");
+}
+function addChild(parentId){
+  const m=store.maps.find(x=>x.id===currentMapId); if(!m) return;
+  const parent=m.nodes.find(n=>n.id===parentId); if(!parent) return;
+  const kids=m.nodes.filter(n=>n.parent===parentId).length;
+  const child={id:uid(), texto:"Novo", x:parent.x+220, y:parent.y+(kids*82)+(parent.parent?0:0), cor:MM_COLORS[m.nodes.length%MM_COLORS.length], parent:parentId};
+  m.nodes.push(child); mmSelNode=child.id; touchMap(m); saveMaps(); render();
+  setTimeout(()=>startEditNode(child.id),40);
+}
+function cycleColor(nid){
+  const m=store.maps.find(x=>x.id===currentMapId); const n=m&&m.nodes.find(x=>x.id===nid); if(!n) return;
+  const i=MM_COLORS.indexOf(n.cor); n.cor=MM_COLORS[(i+1)%MM_COLORS.length]; touchMap(m); saveMaps(); renderMapCanvas();
+}
+function deleteNode(nid){
+  const m=store.maps.find(x=>x.id===currentMapId); const n=m&&m.nodes.find(x=>x.id===nid); if(!n) return;
+  if(!n.parent){ toast("O nó central não pode ser excluído (use Excluir mapa).","warn"); return; }
+  const toDel=new Set([nid]); let added=true;
+  while(added){ added=false; m.nodes.forEach(x=>{ if(x.parent && toDel.has(x.parent) && !toDel.has(x.id)){ toDel.add(x.id); added=true; } }); }
+  m.nodes=m.nodes.filter(x=>!toDel.has(x.id));
+  mmSelNode=null; touchMap(m); saveMaps(); render();
+}
+function startEditNode(nid){
+  const el=document.querySelector(`.mm-node[data-nid="${nid}"]`);
+  const m=store.maps.find(x=>x.id===currentMapId); const node=m&&m.nodes.find(x=>x.id===nid);
+  if(!el||!node) return;
+  el.classList.add('editing');
+  const input=document.createElement('input'); input.className='mm-in'; input.value=node.texto||'';
+  el.innerHTML=''; el.appendChild(input); input.focus(); input.select();
+  let done=false;
+  const finish=(save)=>{ if(done) return; done=true; if(save){ node.texto=input.value.trim()||"(sem texto)"; touchMap(m); saveMaps(); } renderMapCanvas(); };
+  input.addEventListener('blur', ()=>finish(true));
+  input.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); finish(true);} else if(e.key==='Escape'){ finish(false);} });
+  input.addEventListener('mousedown', e=>e.stopPropagation());
+}
+function bindMaps(){
+  const cur=store.maps.find(m=>m.id===currentMapId && !m.deleted);
+  const sel=$("#mmSel"); if(sel) sel.onchange=()=>{ currentMapId=sel.value; mmSelNode=null; mmPan={x:0,y:0}; render(); };
+  $("#mmNew")&&($("#mmNew").onclick=newMap);
+  $("#mmNew2")&&($("#mmNew2").onclick=newMap);
+  $("#mmRenameMap")&&($("#mmRenameMap").onclick=renameMap);
+  $("#mmDelMap")&&($("#mmDelMap").onclick=deleteMap);
+  $("#mmAdd")&&($("#mmAdd").onclick=()=>{ if(mmSelNode) addChild(mmSelNode); });
+  $("#mmRename")&&($("#mmRename").onclick=()=>{ if(mmSelNode) startEditNode(mmSelNode); });
+  $("#mmColor")&&($("#mmColor").onclick=()=>{ if(mmSelNode) cycleColor(mmSelNode); });
+  $("#mmDel")&&($("#mmDel").onclick=()=>{ if(mmSelNode) deleteNode(mmSelNode); });
+  if(!cur){ return; }
+  renderMapCanvas();
+  const canvas=$("#mmCanvas");
+  canvas.onmousedown=(e)=>{
+    if(e.target.tagName==='INPUT') return;
+    const nodeEl=e.target.closest('.mm-node');
+    if(nodeEl){
+      const nid=nodeEl.dataset.nid; const node=cur.nodes.find(n=>n.id===nid); if(!node) return;
+      mmDrag='node'; mmDragInfo={nid, node, mx:e.clientX, my:e.clientY, nx:node.x, ny:node.y}; mmMoved=false;
+    }else{
+      mmDrag='pan'; mmDragInfo={mx:e.clientX, my:e.clientY, px:mmPan.x, py:mmPan.y}; canvas.classList.add('panning');
+    }
+    e.preventDefault();
+  };
+  canvas.ondblclick=(e)=>{ const nodeEl=e.target.closest('.mm-node'); if(nodeEl) startEditNode(nodeEl.dataset.nid); };
+  bindMapsGlobal();
+}
+function bindMapsGlobal(){
+  if(mmGlobalBound) return; mmGlobalBound=true;
+  document.addEventListener('mousemove', e=>{
+    if(!mmDrag) return;
+    if(mmDrag==='node'){
+      const d=mmDragInfo; const dx=e.clientX-d.mx, dy=e.clientY-d.my;
+      if(Math.abs(dx)+Math.abs(dy)>3) mmMoved=true;
+      d.node.x=d.nx+dx; d.node.y=d.ny+dy;
+      const el=document.querySelector(`.mm-node[data-nid="${d.nid}"]`);
+      if(el){ el.style.left=d.node.x+'px'; el.style.top=d.node.y+'px'; }
+      redrawMapLinks();
+    }else if(mmDrag==='pan'){
+      const d=mmDragInfo; mmPan.x=d.px+(e.clientX-d.mx); mmPan.y=d.py+(e.clientY-d.my);
+      const w=$("#mmWorld"); if(w) w.style.transform=`translate(${mmPan.x}px,${mmPan.y}px)`;
+    }
+  });
+  document.addEventListener('mouseup', ()=>{
+    if(mmDrag==='node'){
+      if(mmMoved){ const m=store.maps.find(x=>x.id===currentMapId); if(m){ touchMap(m); saveMaps(); } }
+      else { mmSelNode=mmDragInfo.nid; render(); }
+    }
+    const canvas=$("#mmCanvas"); if(canvas) canvas.classList.remove('panning');
+    mmDrag=null; mmDragInfo=null;
+  });
+}
+
+/* ── Sincronização dos mapas (tabela "mapas" no Supabase) ── */
+let lastMapsSynced={}, mapsTimer=null, mapsBusy=false, mapsAgain=false;
+function mergeMaps(incoming){
+  const map=new Map((store.maps||[]).map(m=>[m.id,m]));
+  let changed=false;
+  (incoming||[]).forEach(m=>{
+    if(!m||!m.id) return;
+    const ex=map.get(m.id);
+    if(!ex || String(m.updatedAt||"") > String(ex.updatedAt||"")){
+      if(m.deleted) map.delete(m.id); else map.set(m.id,m);
+      changed=true;
+    }
+  });
+  if(changed){ store.maps=[...map.values()]; localStorage.setItem(STORE_KEY, JSON.stringify(store)); }
+  return changed;
+}
+async function mapsLoad(){
+  if(!CLOUD) return false;
+  try{
+    const {data,error}=await sb.from("mapas").select("data"); if(error) throw error;
+    const inc=(data||[]).map(r=>r.data).filter(Boolean);
+    const ch=mergeMaps(inc);
+    inc.forEach(m=>{ if(m&&m.id) lastMapsSynced[m.id]=JSON.stringify(m); });
+    return ch;
+  }catch(e){ return false; }
+}
+function scheduleMapsPush(){ if(mapsTimer) return; mapsTimer=setTimeout(()=>{mapsTimer=null;mapsPush();},400); }
+async function mapsPush(){
+  if(!CLOUD) return;
+  if(mapsBusy){ mapsAgain=true; return; }
+  mapsBusy=true;
+  try{
+    const rows=[];
+    (store.maps||[]).forEach(m=>{ const j=JSON.stringify(m); if(lastMapsSynced[m.id]!==j) rows.push({id:m.id,data:m,updated_at:m.updatedAt||now()}); });
+    if(rows.length){ const {error}=await sb.from("mapas").upsert(rows,{onConflict:"id"}); if(error) throw error; rows.forEach(r=>{ lastMapsSynced[r.id]=JSON.stringify(r.data); }); }
+  }catch(e){}
+  finally{ mapsBusy=false; if(mapsAgain){ mapsAgain=false; scheduleMapsPush(); } }
+}
+function mapsSubscribe(){
+  if(!CLOUD) return;
+  sb.channel("mapas-rt").on("postgres_changes",{event:"*",schema:"public",table:"mapas"},payload=>{
+    const m=payload.new && payload.new.data; if(!m||!m.id) return;
+    if(mmDrag) return; // não atrapalhar edição/arrasto local
+    const ch=mergeMaps([m]);
+    const cur=store.maps.find(x=>x.id===m.id); lastMapsSynced[m.id]=JSON.stringify(cur||m);
+    if(ch && view==="mapas" && !ov){ render(); }
+  }).subscribe();
+}
+
 /* ══════════════════════ BIND VIEW ══════════════════════ */
 function bindView(){
   $$("[data-mc]").forEach(c=>c.onclick=()=>{
@@ -1045,6 +1275,7 @@ function bindView(){
       el.onclick=()=>openDetail(el.dataset.id);
   });
   if(view==="quadro") bindDnD();
+  if(view==="mapas") bindMaps();
 }
 
 /* Drag & drop (respeita o fluxo) */
@@ -1518,8 +1749,10 @@ async function afterAuth(){
   if(me && TEAM.some(p=>p.id===me)) setUser(me);
   await cloudLoad();
   await cloudPush();               // sobe atividades que só existiam localmente (ex.: exemplo inicial)
+  await mapsLoad();                // carrega os mapas mentais da equipe
   if(me && TEAM.some(p=>p.id===me)) render();
   cloudSubscribe();
+  mapsSubscribe();
   setConn(connState);
 }
 
