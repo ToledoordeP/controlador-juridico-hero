@@ -431,6 +431,9 @@ input,textarea,select{font-family:inherit}
 .gate-p .go{margin-left:auto;color:var(--tx4)}
 .gate-p:hover .go{color:var(--acc-h)}
 .gate-p .go svg{width:16px;height:16px}
+.gate-master{border-color:#10B98155;background:linear-gradient(135deg,#10B98118,var(--glass))}
+.gate-master:hover{border-color:#10B981aa}
+.master-badge{display:inline-block;vertical-align:middle;margin-left:7px;font-family:var(--fn-mono);font-size:9px;font-weight:700;letter-spacing:.7px;color:#10B981;background:#10B98122;border:1px solid #10B98155;border-radius:5px;padding:1px 6px}
 
 .mono{font-family:var(--fn-mono)}
 .hidden{display:none!important}
@@ -517,7 +520,9 @@ const TEAM = [
   {id:"victor",    nome:"Victor",    papel:"Analista Sênior",      cor:"#22D3EE", email:"victor.justo@heroseguros.com.br"},
   {id:"ana",       nome:"Anna",      papel:"Analista Sênior",      cor:"#7B5EF8", email:"anna.goncalves@heroseguros.com.br"},
   {id:"gabrielle", nome:"Gabrielle", papel:"Gerente Jurídica",     cor:"#F5A623", email:"gabrielle.famiglietti@heroseguros.com.br"},
+  {id:"juridico",  nome:"Jurídico",  papel:"Master · Coordenação",  cor:"#10B981", email:"juridico@heroseguros.com.br", master:true},
 ];
+const isMaster = id => id==="juridico";
 const byId = id => TEAM.find(p=>p.id===id) || {id,nome:(id==null||id===""?"?":String(id)),papel:"",cor:"#64748b"};
 
 const STATUS = [
@@ -834,9 +839,9 @@ function toast(msg, kind="ok"){
 /* ══════════════════════ LOGIN ══════════════════════ */
 function renderGate(){
   $("#gatePeople").innerHTML = TEAM.map(p=>`
-    <button class="gate-p" data-id="${p.id}">
+    <button class="gate-p${p.master?' gate-master':''}" data-id="${p.id}">
       ${avatar(p.id,"lg")}
-      <div><div class="nm">${esc(p.nome)}</div><div class="rl">${esc(p.papel)}</div></div>
+      <div><div class="nm">${esc(p.nome)}${p.master?' <span class="master-badge">MASTER</span>':''}</div><div class="rl">${esc(p.papel)}</div></div>
       <span class="go">${ic("arrow")}</span>
     </button>`).join("");
   $$(".gate-p").forEach(b=>b.onclick=()=>{ setUser(b.dataset.id); });
@@ -1544,11 +1549,12 @@ function openDetail(id){
 function renderDetail(a){
   const st=stById(a.status);
   const pri=PRI.find(p=>p.id===a.prioridade)||PRI[0];
-  const canComplete = isResp(a,me) && (a.status==="todo"||a.status==="doing");
-  const canDelegate = isResp(a,me) && (a.status==="todo"||a.status==="doing");
-  const canApprove  = (a.autorizador===me) && (a.status==="approval");
-  const canEdit = a.criadoPor===me || isResp(a,me) || me==="gabrielle";
-  const canClose = (a.criadoPor===me || isResp(a,me) || me==="gabrielle") && a.status!=="done" && a.status!=="arquivada";
+  const master = isMaster(me);
+  const canComplete = (isResp(a,me)||master) && (a.status==="todo"||a.status==="doing");
+  const canDelegate = (isResp(a,me)||master) && (a.status==="todo"||a.status==="doing");
+  const canApprove  = (a.autorizador===me||master) && (a.status==="approval");
+  const canEdit = a.criadoPor===me || isResp(a,me) || me==="gabrielle" || master;
+  const canClose = (a.criadoPor===me || isResp(a,me) || me==="gabrielle" || master) && a.status!=="done" && a.status!=="arquivada";
 
   let actions="";
   if(canComplete) actions+=`<button class="btn btn-ok" id="dComplete">${ic("check")} ${a.autorizador?"Concluir e enviar p/ aprovação":"Marcar como concluída"}</button>`;
