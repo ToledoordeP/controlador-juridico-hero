@@ -1162,15 +1162,16 @@ function renameMap(){
   const t=prompt("Renomear mapa:", m.titulo); if(t===null) return;
   m.titulo=t.trim()||m.titulo; touchMap(m); saveMaps(); render();
 }
-function deleteMap(){
+async function deleteMap(){
   const m=store.maps.find(x=>x.id===currentMapId); if(!m) return;
   if(!confirm(`Excluir o mapa "${m.titulo}"? Todos os nós serão apagados.`)) return;
   const tomb={...m, deleted:true, updatedAt:now()};
   store.maps=store.maps.filter(x=>x.id!==m.id);
-  if(CLOUD && sb){ try{ sb.from("mapas").upsert([{id:tomb.id,data:tomb,updated_at:tomb.updatedAt}],{onConflict:"id"}); }catch(e){} lastMapsSynced[tomb.id]=JSON.stringify(tomb); }
-  localStorage.setItem(STORE_KEY, JSON.stringify(store));
   currentMapId = store.maps[0]? store.maps[0].id : null; mmSelNode=null;
+  localStorage.setItem(STORE_KEY, JSON.stringify(store));
   render(); toast("Mapa excluído","warn");
+  // grava o marcador de exclusão no banco (com AWAIT — sem isso a query não executa no supabase-js v2)
+  if(CLOUD && sb){ try{ await sb.from("mapas").upsert([{id:tomb.id,data:tomb,updated_at:tomb.updatedAt}],{onConflict:"id"}); lastMapsSynced[tomb.id]=JSON.stringify(tomb); }catch(e){} }
 }
 function addChild(parentId){
   const m=store.maps.find(x=>x.id===currentMapId); if(!m) return;
